@@ -41,6 +41,7 @@ For Micropython boards you got to instantiate `MicropythonDevice` with the desir
 
 - Solder I2C connections and 5V/3.3V/GND
 - Install python requirements, preferrably in a python venv: `pip install -r requirements.txt`
+- Modify `rfunit.py` to match your environment
 - Execute `rfunit.py`
 
 NOTE: For micropython, check <https://docs.micropython.org/> on how to get the code running.
@@ -59,5 +60,4 @@ Some strings
 ISD9160FIMS03 FW Jun 14 2013 at 10:41:12 (C) Nuvoton 2013
 Nuvoton ISD9160MS Boot FW Jun 14 2013 10:40:21 
 ISD-VPE Ver 920.000c 08/05/2013 PV_Prod_Units_Rev5 VERSION:0x10000007
-Nuvoton ISD9160MS Boot FW Jun 14 2013 10:40:21 
 ```

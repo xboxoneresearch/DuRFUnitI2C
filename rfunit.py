@@ -324,6 +324,7 @@ def main(name: str) -> int:
     print("File written")
 
     rfunit.play_sound(Sound.BING)
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main(Devices.MICROPYTHON))
