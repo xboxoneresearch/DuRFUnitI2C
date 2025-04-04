@@ -1,2 +1,6 @@
+# Only for greatfet
 greatfet
+# Only for raspberry pi
 smbus2
+# Micropython / Pyboard
+pyserial
