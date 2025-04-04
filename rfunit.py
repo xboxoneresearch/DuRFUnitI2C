@@ -227,7 +227,9 @@ class RfUnitI2C:
             if print_addrs and (addr % (CHUNK_SIZE * 200)) == 0:
                 print("* 0x{:04X}", addr)
             res = self.read_data(addr)
-            yield res
+            # Fixes reading trailing bytes on last read
+            bytecnt = min(CHUNK_SIZE, FLASH_SIZE - addr)
+            yield res[:bytecnt]
 
     def bruteforce_cmd(self) -> int | None:
         # POSSIBLE_DATA = b"ISD9160"
