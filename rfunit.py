@@ -220,7 +220,7 @@ class RfUnitI2C:
     def reset(self):
         self.dev.write([CMD_RESET_x4A, 0x55])
 
-    def dump_flash(self, print_addrs: bool = False) -> Generator[bytes]:
+    def dump_flash(self, print_addrs: bool = False) -> Generator[bytes, None, None]:
         CHUNK_SIZE = 6
         # Read data in chunks
         for addr in range(0, FLASH_SIZE, CHUNK_SIZE):
@@ -282,31 +282,11 @@ class RegCONTROL:
         return f"Status({self.val}) INTEN={self.INTEN} I2CEN={self.I2CEN} STA={self.STA} STO={self.STO} SI={self.SI} AA={self.AA}"
 
 class Devices:
-    MICROPYTHON = "mpy"
     GREATFET = "greatfet"
     RPI = "rpi"
     DUMMY = "dummy"
 
-def main(name: str) -> int:
-    if name == Devices.MICROPYTHON:
-        # Micropython
-        # Modify parameters depending on your pinout !
-        import machine
-        # Pi Pico - untested
-        # i2c_if = machine.I2C(0, sda=machine.Pin(0), scl=machine.Pin(1), freq=50000)
-        # ESP8266
-        i2c_if = machine.I2C(sda=machine.Pin(4), scl=machine.Pin(5), freq=50000)
-        device = MicropythonDevice(i2c_if)
-    elif name == Devices.GREATFET:
-        device = GreatFetDevice()
-    elif name == Devices.RPI:
-        device = RPiDevice() # untested
-    elif name == Devices.DUMMY:
-        device = DummyDevice()
-    else:
-        print("Invalid device name")
-        return -1
-
+def main(device: I2CClient) -> int:
     rfunit = RfUnitI2C(device)
 
     if not rfunit.detect():
@@ -327,4 +307,31 @@ def main(name: str) -> int:
     return 0
 
 if __name__ == "__main__":
-    sys.exit(main(Devices.MICROPYTHON))
+    device = None
+    if sys.implementation.name == "micropython":
+        import machine
+        if sys.platform == "rp2":
+            # Pi Pico/2 - SDA: GP0, SCL: GP1
+            i2c_if = machine.I2C(0, sda=machine.Pin(0), scl=machine.Pin(1), freq=50000)
+        elif sys.platform == "esp8266":
+            # ESP8266 - SDA: GPIO4, SCL: GPIO5
+            i2c_if = machine.I2C(sda=machine.Pin(4), scl=machine.Pin(5), freq=50000)
+        else:
+            # Implement other platforms if needed
+            raise NotImplementedError()
+
+        device = MicropythonDevice(i2c_if)
+    else:
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("device", choices=["greatfet", "rpi"], help="Device type to use")
+        args = parser.parse_args()
+
+        if args.device == Devices.GREATFET:
+            device = GreatFetDevice()
+        elif args.device == Devices.RPI:
+            device = RPiDevice()
+        else:
+            raise NotImplementedError()
+
+    sys.exit(main(device))

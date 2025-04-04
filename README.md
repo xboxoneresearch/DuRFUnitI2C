@@ -21,16 +21,13 @@ Depending on the device, pull-up resistors might be necessary.
 
 ## Connections
 
-| RF Unit | Greatfet ONE | RasPi                    | Micropython     | Notes                             |
-| ------- | ------------ | ------------------------ |-----------------| ----------------------------------|
-| Pin 4   | 5V           | 5V                       | 5V              | Only necessary for sound playback |
-| Pin 12  | 3.3V         | 3.3V                     | 3.3V            |                                   |
-| GND 9   | Any GND      | Any GND                  | Any GND         |                                   |
-| Pin 6   | SDA (Pin 39) | GPIO2 (I2C1 SDA) - Pin 3 | *variable*      |                                   |
-| Pin 5   | SCL (Pin 40) | GPIO3 (I2C1 SCL) - Pin 5 | *variable*      |                                   |
-
-
-For Micropython boards you got to instantiate `MicropythonDevice` with the desired pinconfig.
+| RF Unit      | Greatfet ONE | RasPi                    | RasPi Pico      | ESP8266     | Notes                            |
+| ------------ | ------------ | ------------------------ | --------------- | ----------- |----------------------------------|
+| Pin 4  (5V)  | 5V           | 5V                       | 5V              | 5V          |Only necessary for sound playback |
+| Pin 12 (3V3) | 3.3V         | 3.3V                     | 3.3V            | 3.3V        |                                  |
+| GND 9  (GND) | Any GND      | Any GND                  | Any GND         | Any GND     |                                  |
+| Pin 6  (SDA) | SDA (Pin 39) | GPIO2 (I2C1 SDA) - Pin 3 | Pin 1 (GP0)     | GPIO 4      |                                  |
+| Pin 5  (SCL) | SCL (Pin 40) | GPIO3 (I2C1 SCL) - Pin 5 | Pin 2 (GP1)     | GPIO 5      |                                  |
 
 ## Features
 
@@ -40,11 +37,23 @@ For Micropython boards you got to instantiate `MicropythonDevice` with the desir
 ## Usage
 
 - Solder I2C connections and 5V/3.3V/GND
-- Install python requirements, preferrably in a python venv: `pip install -r requirements.txt`
-- Modify `rfunit.py` to match your environment
-- Execute `rfunit.py`
+- Install python requirements, preferrably in a python venv
+  - GreatFET: `pip install greatfet`
+  - Raspberry Pi (not Pico): `pip install smbus2`
+  - Micropython: `pip install pyserial`
+- Execute `rfunit.py` (see below for micropython)
 
-NOTE: For micropython, check <https://docs.micropython.org/> on how to get the code running.
+### Micropython
+
+Check [Pyboard tool](https://docs.micropython.org/en/latest/reference/pyboard.py.html) for an overview.
+
+Steps:
+- Download [pyboard.py](https://github.com/micropython/micropython/blob/master/tools/pyboard.py)
+- Make script executable: `chmod +x pyboard.py`
+- Identify the serial port where you micropython device got enumerated (via `dmesg`), f.e. `/dev/ttyACM0`
+- Execute the script: `./pyboard.py --device /dev/ttyACM0 rfunit.py`
+- Copy the dump to the PC: `./pyboard.py --device /dev/ttyACM0 -f cp :dump.bin .`
+
 
 ## Flashdump
 
