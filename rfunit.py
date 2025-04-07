@@ -8,6 +8,7 @@ except:
     pass
 import sys
 import struct
+import time
 
 I2C_ADDR = 0x5A
 FLASH_SIZE = 0x24400 # 145KB
@@ -336,4 +337,9 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError()
 
-    sys.exit(main(device))
+    main(device)
+    if sys.implementation.name == "micropython":
+        # Looping here so Micropython device does
+        # not reboot and starts all over again
+        while True:
+            time.sleep(10)
