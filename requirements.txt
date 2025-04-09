@@ -4,3 +4,5 @@ greatfet
 smbus2
 # Micropython / Pyboard
 pyserial
+# pyinstaller / micropython
+pyinstaller
