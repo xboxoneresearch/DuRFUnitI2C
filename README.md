@@ -29,6 +29,10 @@ Depending on the device, pull-up resistors might be necessary.
 | Pin 6  (SDA) | SDA (Pin 39) | GPIO2 (I2C1 SDA) - Pin 3 | Pin 1 (GP0)     | GPIO 4      |                                  |
 | Pin 5  (SCL) | SCL (Pin 40) | GPIO3 (I2C1 SCL) - Pin 5 | Pin 2 (GP1)     | GPIO 5      |                                  |
 
+### Pi Pico diagram
+
+![Pi Pico Rf Unit connection diagram](./pi_pico_diagram.png)
+
 ## Features
 
 - Play sounds

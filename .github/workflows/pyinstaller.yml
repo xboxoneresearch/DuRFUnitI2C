@@ -8,6 +8,9 @@ on:
       - main
       - feat/pyinstaller
 
+env:
+  MICROPYTHON_PICO_UF2_URL: https://micropython.org/resources/firmware/RPI_PICO-20241129-v1.24.1.uf2
+
 permissions:
   contents: write
 
@@ -22,6 +25,10 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+
+      - name: Download micropython binary
+        run: |
+          wget -O micropython_pico.uf2 ${{ env.MICROPYTHON_PICO_UF2_URL }}
 
       - name: Install PyInstaller
         run: |
@@ -41,8 +48,11 @@ jobs:
           name: build-artifacts
           path: |
             dist/
+            LICENSE
+            CREDITS
             README.txt
-            pi_pico_diagram.jpg
+            pi_pico_diagram.png
+            micropython_pico.uf2
 
   release:
     runs-on: ubuntu-latest
@@ -57,9 +67,12 @@ jobs:
       - name: Create release zip
         run: |
           mkdir release
+          LICENSE
+          CREDITS
           cp dist/* release/
           cp README.txt release/
-          cp pi_pico_diagram.jpg release/
+          cp pi_pico_diagram.png release/
+          cp micropython_pico.uf2 release/
           cd release
           7z a ../rfunit-win64-${{ github.ref_name }}.zip *
           cd ..
