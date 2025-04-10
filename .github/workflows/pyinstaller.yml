@@ -28,7 +28,7 @@ jobs:
 
       - name: Download micropython binary
         run: |
-          wget -O micropython_pico.uf2 ${{ env.MICROPYTHON_PICO_UF2_URL }}
+          IWR -OutFile micropython_pico.uf2 -Uri ${{ env.MICROPYTHON_PICO_UF2_URL }}
 
       - name: Install PyInstaller
         run: |
