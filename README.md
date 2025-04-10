@@ -1,8 +1,9 @@
+
+
 # Durango RF Unit I2C tooling
 
-<Warning>
-* Use at your own risk*
-</Warning>
+> [!WARNING]
+> Use at your own risk!
 
 Technical infos: <https://xboxoneresearch.github.io/wiki/hardware/rf-unit/>
 
