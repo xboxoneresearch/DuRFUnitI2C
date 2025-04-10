@@ -52,12 +52,15 @@ Depending on the device, pull-up resistors might be necessary.
 
 Check [Pyboard tool](https://docs.micropython.org/en/latest/reference/pyboard.py.html) for an overview.
 
-Steps:
-- Download [pyboard.py](https://github.com/micropython/micropython/blob/master/tools/pyboard.py)
-- Make script executable: `chmod +x pyboard.py`
+Easy:
+
+- Execute `micropython_rfunit.py`
+
+Manual:
+
 - Identify the serial port where you micropython device got enumerated (via `dmesg`), f.e. `/dev/ttyACM0`
-- Execute the script: `./pyboard.py --device /dev/ttyACM0 rfunit.py`
-- Copy the dump to the PC: `./pyboard.py --device /dev/ttyACM0 -f cp :dump.bin .`
+- Execute the script: `./vendor/pyboard.py --device /dev/ttyACM0 rfunit.py`
+- Copy the dump to the PC: `./vendor/pyboard.py --device /dev/ttyACM0 -f cp :dump.bin .`
 
 
 ## Flashdump
