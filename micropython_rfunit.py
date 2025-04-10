@@ -12,8 +12,12 @@ else:
     # we are running in a normal Python environment
     bundle_dir = os.path.dirname(os.path.abspath(__file__))
 
-dump_path = os.path.join(bundle_dir, "dump.bin")
-print(dump_path)
+cwd = os.getcwd()
+
+# Path in bundle or next to script
+rfunit_py_path = os.path.join(bundle_dir, "rfunit.py")
+# Path in current working directory
+dump_path = os.path.join(cwd, "dump.bin")
 
 if Path(dump_path).is_file():
     print(f"Dump file at '{dump_path}' already exists, please rename or delete and try again!")
@@ -76,7 +80,7 @@ pyb.enter_raw_repl()
 
 print("Executing dumping script...")
 # Execute the dumping script
-res = pyb.execfile("rfunit.py")
+res = pyb.execfile(rfunit_py_path)
 if b'RF Unit was not detected' in res:
     print("RF Unit not detected, exiting!")
     exit(2)

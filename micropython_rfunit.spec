@@ -2,7 +2,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 added_files = [
-         ( 'rfunit.py', 'rfunit.py' ),
+         ( 'rfunit.py', '.' ),
          ]
 
 a = Analysis(
