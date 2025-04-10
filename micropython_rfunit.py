@@ -40,7 +40,7 @@ if len(ports) == 0:
   print("No serial port found. Is Pico with flashed Micropython connected?")
   sys.exit(1)
 
-devices = list(filter(lambda x: x.manufacturer == "MicroPythona", ports))
+devices = list(filter(lambda x: x.manufacturer == "MicroPython", ports))
 device = None
 
 if devices:
