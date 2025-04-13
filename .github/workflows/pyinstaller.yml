@@ -67,8 +67,8 @@ jobs:
       - name: Create release zip
         run: |
           mkdir release
-          LICENSE
-          CREDITS
+          cp LICENSE release/
+          cp CREDITS release/
           cp dist/* release/
           cp README.txt release/
           cp pi_pico_diagram.png release/
@@ -81,8 +81,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref }}
-          name: Release ${{ github.ref }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           generate_notes: false
           files: |
             rfunit-*.zip
