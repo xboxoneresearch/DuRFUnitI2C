@@ -78,7 +78,7 @@ pyb = pyboard.Pyboard(device.device, 115200)
 print("Entering RAW REPL")
 pyb.enter_raw_repl()
 
-print("Executing dumping script...")
+print("Executing dumping script (takes around 1m40s for a full dump...")
 # Execute the dumping script
 res = pyb.execfile(rfunit_py_path)
 if b'RF Unit was not detected' in res:

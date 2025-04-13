@@ -225,7 +225,8 @@ class RfUnitI2C:
         # Read data in chunks
         for addr in range(0, FLASH_SIZE, CHUNK_SIZE):
             if print_addrs and (addr % (CHUNK_SIZE * 200)) == 0:
-                print(f"* 0x{addr:04X}")
+                percentage = (addr / FLASH_SIZE) * 100.0
+                print(f"* 0x{addr:04X} ({percentage:8.2f} %)")
             res = self.read_data(addr)
             # Fixes reading trailing bytes on last read
             bytecnt = min(CHUNK_SIZE, FLASH_SIZE - addr)
