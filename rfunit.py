@@ -123,6 +123,7 @@ Commands
 CMD_INTERRUPT_READ_xC0 = 0xC0
 CMD_REG_WRITE_x48 = 0x48
 CMD_REG_READ_xC1 = 0xC1
+CMD_FW_VERSION_xC2 = 0xC2
 CMD_FLASH_READ_xC3 = 0xC3
 
 CMD_START_x81 = 0x81
@@ -203,6 +204,13 @@ class RfUnitI2C:
 
     def stop(self):
         self.dev.write([CMD_STOP_x02])
+
+    def read_fw_version(self) -> bytes:
+        cmd_bytes = [CMD_FW_VERSION_xC2]
+        # Send command and receive data
+        data = bytes(self.dev.transmit(cmd_bytes, 128))
+        # Skip 2 bytes and chop off data at first null-byte
+        return data[2:data.index(b'\x00')]
 
     def read_data(self, addr: int) -> bytes:
         cmd_bytes = [CMD_FLASH_READ_xC3]
@@ -298,6 +306,9 @@ def main(device: I2CClient) -> int:
 
     rfunit.init()
     rfunit.stop()
+
+    version = rfunit.read_fw_version()
+    print(version)
 
     print("Dumping flash")
     with open("dump.bin", "wb") as f:
