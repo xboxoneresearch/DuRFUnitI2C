@@ -1,0 +1,11 @@
+pyboard.py
+- Author: Micropython project
+- Source: https://github.com/micropython/micropython/blob/master/tools/pyboard.py
+
+micropython_pico.uf2
+- Author: Micropython project
+- Source: https://micropython.org/download/RPI_PICO/
+
+pyserial
+- Author: Various
+- Source: https://pypi.org/project/pyserial/

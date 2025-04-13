@@ -1,8 +1,9 @@
+
+
 # Durango RF Unit I2C tooling
 
-<Warning>
-* Use at your own risk*
-</Warning>
+> [!WARNING]
+> Use at your own risk!
 
 Technical infos: <https://xboxoneresearch.github.io/wiki/hardware/rf-unit/>
 
@@ -29,6 +30,10 @@ Depending on the device, pull-up resistors might be necessary.
 | Pin 6  (SDA) | SDA (Pin 39) | GPIO2 (I2C1 SDA) - Pin 3 | Pin 1 (GP0)     | GPIO 4      |                                  |
 | Pin 5  (SCL) | SCL (Pin 40) | GPIO3 (I2C1 SCL) - Pin 5 | Pin 2 (GP1)     | GPIO 5      |                                  |
 
+### Pi Pico diagram
+
+![Pi Pico Rf Unit connection diagram](./pi_pico_diagram.png)
+
 ## Features
 
 - Play sounds
@@ -47,12 +52,15 @@ Depending on the device, pull-up resistors might be necessary.
 
 Check [Pyboard tool](https://docs.micropython.org/en/latest/reference/pyboard.py.html) for an overview.
 
-Steps:
-- Download [pyboard.py](https://github.com/micropython/micropython/blob/master/tools/pyboard.py)
-- Make script executable: `chmod +x pyboard.py`
+Easy:
+
+- Execute `micropython_rfunit.py`
+
+Manual:
+
 - Identify the serial port where you micropython device got enumerated (via `dmesg`), f.e. `/dev/ttyACM0`
-- Execute the script: `./pyboard.py --device /dev/ttyACM0 rfunit.py`
-- Copy the dump to the PC: `./pyboard.py --device /dev/ttyACM0 -f cp :dump.bin .`
+- Execute the script: `./vendor/pyboard.py --device /dev/ttyACM0 rfunit.py`
+- Copy the dump to the PC: `./vendor/pyboard.py --device /dev/ttyACM0 -f cp :dump.bin .`
 
 
 ## Flashdump
