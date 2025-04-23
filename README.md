@@ -25,7 +25,7 @@ Depending on the device, pull-up resistors might be necessary.
 
 | Xbox / Pin       | 3V3 | GND | SDA (DATA) | SCL (CLOCK) | Note                                                   |
 | ---------------- | --- | --- | ---------- | ----------- | ------------------------------------------------------ |
-| RF Unit (PHAT)   | 12  |  9  |       6    |          5  |                                                        |
+| RF Unit (PHAT)   | 12  |  9  |       6    |          5  |  Solder a bridge on R24, remove after dump/flash !     |
 | RF UNIT (One S)  |  7  | 11  |      16    |         15  |                                                        |
 | FACET (Universal)| NC  |  2  |      26    |         25  | Connector is on motherboard ! See FACET section below !|
 
