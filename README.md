@@ -22,13 +22,29 @@ Depending on the device, pull-up resistors might be necessary.
 
 ## Connections
 
-| RF Unit      | Greatfet ONE | RasPi                    | RasPi Pico      | ESP8266     | Notes                            |
-| ------------ | ------------ | ------------------------ | --------------- | ----------- |----------------------------------|
-| Pin 4  (5V)  | 5V           | 5V                       | 5V              | 5V          |Only necessary for sound playback |
-| Pin 12 (3V3) | 3.3V         | 3.3V                     | 3.3V            | 3.3V        |                                  |
-| GND 9  (GND) | Any GND      | Any GND                  | Any GND         | Any GND     |                                  |
-| Pin 6  (SDA) | SDA (Pin 39) | GPIO2 (I2C1 SDA) - Pin 3 | Pin 1 (GP0)     | GPIO 4      |                                  |
-| Pin 5  (SCL) | SCL (Pin 40) | GPIO3 (I2C1 SCL) - Pin 5 | Pin 2 (GP1)     | GPIO 5      |                                  |
+
+| Xbox / Pin       | 3V3 | GND | SDA (DATA) | SCL (CLOCK) | Note                                                   |
+| ---------------- | --- | --- | ---------- | ----------- | ------------------------------------------------------ |
+| RF Unit (PHAT)   | 12  |  9  |       6    |          5  |                                                        |
+| RF UNIT (One S)  |  7  | 11  |      16    |         15  |                                                        |
+| FACET (Universal)| NC  |  2  |      26    |         25  | Connector is on motherboard ! See FACET section below !|
+
+| Board / Pin      | 3V3 | GND | SDA (DATA)           | SCL (CLOCK)         |
+| ---------------- |---- | --- | -------------------- | ------------------- |
+| GreatFET One     | 3V3 | Any |                   39 |                  40 |
+| RasPi (non-Pico) | 3V3 | Any | 3 (GPIO2 / I2C1 SDA) | 5 (GPIO3 / I2C1 SCL)|
+| RasPi Pico       | 3V3 | Any |              1 (GP0) |             2 (GP1) |
+| ESP 8266         | 3V3 | Any |               GPIO 4 |               GPIO 5|
+
+### Notes on FACET
+
+General info: [Wiki](https://xboxoneresearch.github.io/wiki/hardware/facet/)
+
+- DO NOT CONNECT 3V3, DO NOT PRESS THE POWER BUTTON
+- Solder a 300 Ohm resistor between SMC_RST (Pin 1 on FACET) and GND
+- Solder the other connections to the MCU (GND, SDA, SCL)
+- The Xbox Standby power is used, the PSU / power cable has to be connected to the console.
+- After dumping/flashing, desolder the connections incl. the resistor bridge
 
 ### Pi Pico diagram
 
