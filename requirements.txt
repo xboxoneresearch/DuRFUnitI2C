@@ -2,7 +2,9 @@
 greatfet
 # Only for raspberry pi
 smbus2
-# Micropython / Pyboard
+# Pyboard / micropython
 pyserial
 # pyinstaller / micropython
 pyinstaller
+# Progress bar / micropython
+tqdm

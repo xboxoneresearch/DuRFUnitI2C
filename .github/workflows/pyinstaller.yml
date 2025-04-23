@@ -32,7 +32,7 @@ jobs:
 
       - name: Install PyInstaller
         run: |
-          pip install pyinstaller pyserial
+          pip install pyinstaller pyserial tqdm
 
       - name: Build executable
         run: |
@@ -51,7 +51,8 @@ jobs:
             LICENSE
             CREDITS
             README.txt
-            pi_pico_diagram.png
+            pi_pico_diagram_phat.png
+            pi_pico_diagram_one_s.png
             micropython_pico.uf2
 
   release:
@@ -71,7 +72,8 @@ jobs:
           cp CREDITS release/
           cp dist/* release/
           cp README.txt release/
-          cp pi_pico_diagram.png release/
+          cp pi_pico_diagram_phat.png release/
+          cp pi_pico_diagram_one_s.png release/
           cp micropython_pico.uf2 release/
           cd release
           7z a ../rfunit-win64-${{ github.ref_name }}.zip *

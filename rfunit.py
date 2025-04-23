@@ -4,13 +4,20 @@ Xbox One I2C RF Unit
 
 try:
     from typing import List, Generator
+    from io import BufferedReader, BufferedWriter
 except:
     pass
+
+import os
 import sys
 import struct
+import time
 
 I2C_ADDR = 0x5A
 FLASH_SIZE = 0x24400 # 145KB
+
+def hexdump(data: bytes) -> str:
+    return "".join([f"{b:02x}" for b in data])
 
 class I2CClient:
     """
@@ -121,48 +128,62 @@ Commands
 """
 
 CMD_INTERRUPT_READ_xC0 = 0xC0
+CMD_BOOT_APROM_x1B = 0x1B
 CMD_REG_WRITE_x48 = 0x48
+CMD_BOOT_LDROM_x4B = 0x4B
 CMD_REG_READ_xC1 = 0xC1
 CMD_FW_VERSION_xC2 = 0xC2
 CMD_FLASH_READ_xC3 = 0xC3
+CMD_VPE_VERSION_xC4 = 0xC4
+CMD_ERROR_STRING_xC5 = 0xC5
+CMD_GET_TIMERVAL_xC9 = 0xC9
 
 CMD_START_x81 = 0x81
+CMD_BOOT_REPAIR_x8B = 0x8B
 CMD_STOP_x02 = 0x02
+CMD_FLASH_ERASE_x95 = 0x95
+CMD_FLASH_WRITE_x9A = 0x9A
+CMD_FLASH_SET_WRITE_ADDR_x9B = 0x9B
 CMD_RESET_x4A = 0x4A
 
+STATUS_READY = 0x80
+STATUS_ERROR = 0x04
+STATUS_LDROM = 0x0C
+STATUS_BUSY = 0x10
+STATUS_BOOT_LDROM_IN_PROGRESS = 0x88
 
 """
 Registers
+
+Register Index -> Offsets (each 1 byte length)
+
+0x00 -> 0x20000f24
+0x01 -> 0x20000f25
+0x0c -> 0x20000f16
+0x0d -> 0x20000f20 (Does modulo 16000 % $value$ and stores remainder in the register)
+0x0e -> 0x20000f22 (If $value$ is 0, store 1)
+0x0f -> 0x20000f23
+0x11 -> 0x20000f21
+0x16 -> 0x20000f26
+0x17 -> 0x20000f27
+0x18 -> 0x20000f2e
+0x19 -> 0x20000f2f
+0x1a -> 0x20000f19
+0x1c -> 0x20000f30
+0x21 -> 0x20000f32
+0x23 ->0x20000f2c
+0x28 -> 0x20000f40
+0x29 -> 0x20000f41
+0x2b ->0x20000f42
+
+Missing registers:
+0x1f (PDMA related)
+0x20
+0x22
+0x2a 
 """
 
-# R/W I2C Control Register
-REG_CTL = 0x00
-# R/W I2C Slave address Register0
-REG_ADDR0 = 0x04
-# R/W I2C DATA Register
-REG_DAT = 0x08
-# R I2C Status Register
-REG_STATUS = 0x0C
-# R/W I2C clock divided Register
-REG_CLKDIV = 0x10
-# R/W I2C Time out control Register
-REG_TOCTL = 0x14
-# R/W I2C Slave address Register1
-REG_ADDR1 = 0x18
-# R/W I2C Slave address Register2
-REG_ADDR2 = 0x1C
-# R/W I2C Slave address Register3
-REG_ADDR3 = 0x20
-# R/W I2C Slave address Mask Register0
-REG_ADDRMSK0 = 0x24
-# R/W I2C Slave address Mask Register1
-REG_ADDRMSK1 = 0x28
-# R/W I2C Slave address Mask Register2
-REG_ADDRMSK2 = 0x2C
-# R/W I2C Slave address Mask Register3
-REG_ADDRMSK3 = 0x30
 
-#class Sound(Enum):
 class Sound:
     POWERON = 0x00
     BING = 0x01
@@ -176,8 +197,21 @@ class Sound:
     NO_DISC = 0x07
     PLOPP_LOUDER = 0x08
 
+def gen_challenge_response(challenge: List[int]) -> List[int]:
+    MAGIC_VAL_MUL = 0x219f5
+    MAGIC_VAL_ADD = 0x1651
+
+    b0 = challenge[0] % 0xB
+    b1 = challenge[1] % 0xB
+    b2 = challenge[2] % 0xB
+    b3 = challenge[3] % 0xB
+
+    res = MAGIC_VAL_MUL * ((b0 * 0x200) + (b1 * 0x80) + (b2 * 0x20) + (b3 * 0x8) + MAGIC_VAL_ADD)
+    return list(struct.pack("<I", res))
+
 class RfUnitI2C:
     def __init__(self, dev: I2CClient):
+        self.old_status = 0
         self.dev = dev
 
     def detect(self) -> bool:
@@ -185,8 +219,72 @@ class RfUnitI2C:
         print("Discovered devices: ", ids)
         return I2C_ADDR in ids
 
+    def read_status(self) -> int:
+        # Returns u16, first 8bits being the status byte
+        return struct.unpack("<H", bytes(self.dev.read(2)))[0]
+
+    def is_in_ldrom(self) -> bool:
+        return self.read_status() & STATUS_LDROM == STATUS_LDROM
+
+    def wait_busy(self) -> bool:
+        sleep_count = 0
+        while sleep_count < 50:
+            try:
+                status = self.read_status() & 0xFF
+                if self.old_status != status:
+                    # print(f"{status=:#02x}")
+                    self.old_status = status
+
+                if status & STATUS_BUSY == STATUS_BUSY:
+                    sleep_count += 1
+                    time.sleep(0.1)
+                elif (status & STATUS_ERROR == STATUS_ERROR) and (status & STATUS_LDROM != STATUS_LDROM):
+                    # Error flag seems always set in LDROM
+                    print("wait_busy: Got error status!")
+                    print(f"Error: {self.read_error_string()}")
+                    return False
+                elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
+                    pass
+                else:
+                    return True
+            except OSError:
+                pass
+        
+        print("wait_busy: Timeout")
+        return False
+
+    def wait_for_status(self, target_status: int) -> bool:
+        sleep_count = 0
+        while sleep_count < 50:
+            try:
+                status = self.read_status() & 0xFF
+                if self.old_status != status:
+                    # print(f"{status=:#02x}")
+                    self.old_status = status
+
+                if status & target_status == target_status:
+                    return True
+                elif (status & STATUS_ERROR == STATUS_ERROR) and (status & STATUS_LDROM != STATUS_LDROM):
+                    # Error flag seems always set in LDROM
+                    print("wait_for_status: Got error status!")
+                    print(f"Error: {self.read_error_string()}")
+                    return False
+                elif status & STATUS_BUSY == STATUS_BUSY:
+                    sleep_count += 1
+                    time.sleep(0.5)
+                elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
+                    pass
+                else:
+                    print(f"wait_for_status: Unknown status: {status:02x}")
+                    return False
+            except OSError:
+                pass
+        
+        print("wait_for_status: Timeout")
+        return False
+
     def _read_interrupt(self) -> List[int]:
-        return self.dev.transmit([CMD_INTERRUPT_READ_xC0], 2)
+        return self.dev.transmit([CMD_INTERRUPT_READ_xC0], 0)
 
     def read_register(self, register: int) -> List[int]:
         return self.dev.transmit([CMD_REG_READ_xC1, register], 4)
@@ -199,8 +297,8 @@ class RfUnitI2C:
         self.dev.write(write_data)
 
     def init(self):
-        self._write_register(REG_STATUS, [0x01])
-        self._write_register(REG_ADDR0, [0xFF, 0xFF])
+        self._write_register(0x0C, [0x01])
+        self._write_register(0x04, [0xFF, 0xFF])
 
     def stop(self):
         self.dev.write([CMD_STOP_x02])
@@ -212,13 +310,27 @@ class RfUnitI2C:
         # Skip 2 bytes and chop off data at first null-byte
         return data[2:data.index(b'\x00')]
 
+    def read_vpe_version(self) -> bytes:
+        cmd_bytes = [CMD_VPE_VERSION_xC4]
+        # Send command and receive data
+        data = bytes(self.dev.transmit(cmd_bytes, 128))
+        # Skip 2 bytes and chop off data at first null-byte
+        return data[2:data.index(b'\x00')]
+
+    def read_error_string(self) -> bytes:
+        cmd_bytes = [CMD_ERROR_STRING_xC5]
+        # Send command and receive data
+        data = bytes(self.dev.transmit(cmd_bytes, 128))
+        # Skip 2 bytes and chop off data at first null-byte
+        return data[2:data.index(b'\x00')]
+
     def read_data(self, addr: int) -> bytes:
         cmd_bytes = [CMD_FLASH_READ_xC3]
         # Convert address to bytes, U32-LE and append to cmd buffer
         cmd_bytes.extend(list(struct.pack("<I", addr)))
         # Send command and receive data (we get 9 bytes back)
         data = bytes(self.dev.transmit(cmd_bytes, 8))
-        # Cut ?status? bytes (discard first 2 bytes and cut off after 8th), yielding 6 bytes
+        # Cut status bytes (discard first 2 bytes and cut off after 8th), yielding 6 bytes
         # GreatFET, when asked to receive 8 bytes, returns 9
         return data[2:8]
 
@@ -226,96 +338,198 @@ class RfUnitI2C:
         self.dev.write([CMD_START_x81, num])
 
     def reset(self):
-        self.dev.write([CMD_RESET_x4A, 0x55])
+        self.dev.write([CMD_RESET_x4A, 0x55, 0x01])
 
-    def dump_flash(self, print_addrs: bool = False) -> Generator[bytes, None, None]:
+    def boot_repair(self):
+        self.dev.write([CMD_BOOT_REPAIR_x8B, 1, 1, 1])
+        return self.wait_for_status(STATUS_READY)
+
+    def get_timer_value(self) -> List[int]:
+        res = self.dev.transmit([CMD_GET_TIMERVAL_xC9], 6)
+        # Cut status bytes
+        return res[2:6]
+
+    def boot_to_ldrom(self):
+        WAIT_SECS = 10
+        challenge = self.get_timer_value()
+        response = gen_challenge_response(challenge)
+
+        cmd_bytes = [CMD_BOOT_LDROM_x4B]
+        cmd_bytes.extend(response)
+
+        self.dev.write(cmd_bytes)
+
+        print(f"Waiting for {WAIT_SECS} seconds...")
+        start_time = time.time()
+        # This loop is necessary for micropython to not fail due to timeout
+        while (time.time() - start_time) < WAIT_SECS:
+            sys.stdout.write("\n")
+            time.sleep(1)
+        print("Checking if LDROM was reached...")
+
+        self.init()
+        self.stop()
+        return self.wait_for_status(STATUS_LDROM)
+
+    def boot_to_aprom(self):
+        self.dev.write([CMD_BOOT_APROM_x1B])
+        time.sleep(4)
+        return self.wait_for_status(STATUS_READY)
+
+    def erase_flash(self, addr: int, count: int):
+        cmd_bytes = [CMD_FLASH_ERASE_x95]
+        # Convert address and count to bytes, U32-LE and append to cmd buffer
+        cmd_bytes.extend(list(struct.pack("<I", addr)))
+        cmd_bytes.extend(list(struct.pack("<I", count)))
+
+        self.dev.write(cmd_bytes)
+        return self.wait_busy()
+
+    def write_flash(self, addr: int, data: bytes):
+        # Set address
+        cmd_bytes = [CMD_FLASH_SET_WRITE_ADDR_x9B]
+        # Convert address to bytes, U32-LE and append to cmd buffer
+        cmd_bytes.extend(list(struct.pack("<I", addr)))
+        self.dev.write(cmd_bytes)
+
+        res = self.wait_busy()
+        if not res:
+            return res
+
+        # Write actual data
+        cmd_bytes = [CMD_FLASH_WRITE_x9A]
+        # Convert bytes to a list of ints and append to cmd buffer
+        cmd_bytes.extend(list(data))
+        self.dev.write(cmd_bytes)
+
+        return self.wait_busy()
+
+    def dump_flash(self, offset: int, count: int) -> Generator[bytes, None, None]:
         CHUNK_SIZE = 6
         # Read data in chunks
-        for addr in range(0, FLASH_SIZE, CHUNK_SIZE):
-            if print_addrs and (addr % (CHUNK_SIZE * 200)) == 0:
-                percentage = (addr / FLASH_SIZE) * 100.0
-                print(f"* 0x{addr:04X} ({percentage:8.2f} %)")
+        end_offset = offset + count
+        for addr in range(offset, end_offset, CHUNK_SIZE):
             res = self.read_data(addr)
             # Fixes reading trailing bytes on last read
-            bytecnt = min(CHUNK_SIZE, FLASH_SIZE - addr)
+            bytecnt = min(CHUNK_SIZE, end_offset - addr)
             yield res[:bytecnt]
 
-    def bruteforce_cmd(self) -> int | None:
-        # POSSIBLE_DATA = b"ISD9160"
-        # POSSIBLE_DATA = b"9160"
-        # POSSIBLE_DATA = b"Nuvoton"
-        # Reference: https://github.com/robbie-cao/piccolo/blob/cd7f55475db9e19090656238a3268f0576cc6651/SDK/CMSIS/CM0/DeviceSupport/Nuvoton/ISD91xx/boot_ISD9xx.c#L195
-        POSSIBLE_DATA = b"\x00\x30\x00\x20"
+def print_position(position: int, mod_value: int = None):
+    # As we dont want to print on each iteration..
+    if not mod_value or position % mod_value == 0:
+        print(f"{position:#08x}")
 
-        # Create list of all possible commands
-        cmds_to_test = list(range(0, 0xFF))
+def do_dump(dev: RfUnitI2C, f: BufferedWriter):
+    pos = 0
+    print("Dumping...")
+    for chunk in dev.dump_flash(0, FLASH_SIZE):
+        f.write(chunk)
+        pos += len(chunk)
+        # Chunk is 6 bytes
+        print_position(pos, len(chunk) * 0x100)
+    print_position(FLASH_SIZE)
+    print("* Dumping flash finished")
+    return 0
 
-        # Remove known cmds
-        for known_cmd in [
-            CMD_RESET_x4A,
-            CMD_REG_WRITE_x48,
-            CMD_INTERRUPT_READ_xC0,
-            CMD_REG_READ_xC1,
-            CMD_START_x81,
-            CMD_STOP_x02
-        ]:
-            cmds_to_test.remove(known_cmd)
+def do_flash(dev: RfUnitI2C, f: BufferedReader):
+    if not dev.is_in_ldrom():
+        print("Entering LDROM")
+        res = dev.boot_to_ldrom()
+        if not res:
+            print("Failed entering LDROM")
+            return 4
 
-        for cmd in cmds_to_test:
-            print(f"Current CMD: 0x{cmd:02X}")
-            cmd_buf = [cmd]
-            # Assume address is packed as LE U32, read from addr 0
-            addr_bytes = struct.pack("<I", 0x0)
-            # Append address to cmd
-            cmd_buf.extend(list(addr_bytes))
-            # Send cmd and receive back data, expect 0x10 bytes
-            res = bytes(self.dev.transmit(cmd_buf, 0x10))
-            # Check if we have the identifier in returned bytes
-            if POSSIBLE_DATA in res:
-                print(f"Possible match with payload {cmd_buf}")
-                print(f"Data: {res}")
-                return cmd
+    print("* We are in LDROM now :)")
 
-class RegCONTROL:
-    def __init__(self, val: int):
-        self.val = val
-        self.INTEN = (val & (1 << 7)) != 0
-        self.I2CEN = (val & (1 << 6)) != 0
-        self.STA = (val & (1 << 5)) != 0
-        self.STO = (val & (1 << 4)) != 0
-        self.SI = (val & (1 << 3)) != 0
-        self.AA = (val & (1 << 2)) != 0
-        # Reserved bits
-        assert (val & 2) == 0
-        assert (val & 1) == 0
-    
-    def __str__(self):
-        return f"Status({self.val}) INTEN={self.INTEN} I2CEN={self.I2CEN} STA={self.STA} STO={self.STO} SI={self.SI} AA={self.AA}"
+    print("Erasing...")
+    res = dev.erase_flash(0x00, FLASH_SIZE)
+    if not res:
+        print("Failed erasing APROM")
+        return 5
+    print("* Erasing finished")
+
+    print("Writing flash now...")
+    WRITE_CHUNK_SZ = 0x80
+
+    for addr in range(0, FLASH_SIZE, WRITE_CHUNK_SZ):
+        data = f.read(WRITE_CHUNK_SZ)
+        res = dev.write_flash(addr, data)
+        if not res:
+            print("Failed to write flash")
+            return 6
+        print_position(addr, WRITE_CHUNK_SZ * 10)
+    print_position(FLASH_SIZE)
+    print("* Writing flash finished")
+    return 0
 
 class Devices:
     GREATFET = "greatfet"
     RPI = "rpi"
     DUMMY = "dummy"
 
+DUMP_FILENAME = "dump.bin"
+FLASH_FILENAME = "flash.bin"
+
+def get_filesize(path: str) -> int:
+    SEEK_END = 2
+    try:
+        f = open(path, "rb")
+        f.seek(0, SEEK_END)
+        filesize = f.tell()
+        f.close()
+        return filesize
+    except OSError:
+        return 0
+
 def main(device: I2CClient) -> int:
     rfunit = RfUnitI2C(device)
 
     if not rfunit.detect():
         print("RF Unit was not detected!")
-        sys.exit(1)
+        return 1
 
     rfunit.init()
     rfunit.stop()
 
-    version = rfunit.read_fw_version()
-    print(version)
+    if not rfunit.is_in_ldrom():
+        fw_version = rfunit.read_fw_version()
+        print(fw_version)
+        vpe_version = rfunit.read_vpe_version()
+        print(vpe_version)
 
-    print("Dumping flash")
-    with open("dump.bin", "wb") as f:
-        for chunk in rfunit.dump_flash(True):
-            # For Micropython, you might want to print to UART instead..
-            f.write(chunk)
-    print("File written")
+    # Do action based on file existance
+    # Expecting "flash.bin" for flashing
+    # Otherwise, a dump is made
+    flash_filesize = get_filesize(FLASH_FILENAME)
+    if flash_filesize:
+        print(f"Flashing file '{FLASH_FILENAME}'...")
+        if flash_filesize != FLASH_SIZE:
+            print(f"Expected flash filesize of {FLASH_SIZE:#08x}, got {flash_filesize:#08x}! Exiting!")
+            return 2
+        with open(FLASH_FILENAME, "rb") as f:
+            ret = do_flash(rfunit, f)
+            if ret != 0:
+                print(f"Something went wrong, code: {ret}")
+                return ret
+
+    elif get_filesize(DUMP_FILENAME):
+        # Dump already exists
+        print(f"Dump '{DUMP_FILENAME}' already exists on device, not doing anything!")
+        return 3
+    else:
+        print(f"Dumping to file '{DUMP_FILENAME}'...")
+        with open(DUMP_FILENAME, "wb") as f:
+            ret = do_dump(rfunit, f)
+            if ret != 0:
+                print(f"Something went wrong, code: {ret}")
+                return ret
+
+    if rfunit.is_in_ldrom():
+        print("Rebooting back into APROM now...")
+        if not rfunit.boot_to_aprom():
+            print("Failed booting back into APROM")
+            return 7
+        print("* Reboot to APROM finished")
 
     rfunit.play_sound(Sound.BING)
     return 0

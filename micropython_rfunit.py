@@ -1,5 +1,6 @@
 import os
 import sys
+from tqdm import tqdm
 from vendor import pyboard
 from pathlib import Path
 from serial.tools import list_ports
@@ -14,12 +15,24 @@ else:
 
 cwd = os.getcwd()
 
+FLASH_FILESIZE = 0x24400
+
+DUMP_FILENAME = "dump.bin"
+FLASH_FILENAME = "flash.bin"
+
 # Path in bundle or next to script
 rfunit_py_path = os.path.join(bundle_dir, "rfunit.py")
 # Path in current working directory
-dump_path = os.path.join(cwd, "dump.bin")
+dump_path = os.path.join(cwd, DUMP_FILENAME)
+flash_path = os.path.join(cwd, FLASH_FILENAME)
 
-if Path(dump_path).is_file():
+do_flash = False
+do_dump = True
+
+if Path(flash_path).is_file():
+   do_dump = False
+   do_flash = True
+elif Path(dump_path).is_file():
     print(f"Dump file at '{dump_path}' already exists, please rename or delete and try again!")
     sys.exit(1)
 
@@ -78,21 +91,55 @@ pyb = pyboard.Pyboard(device.device, 115200)
 print("Entering RAW REPL")
 pyb.enter_raw_repl()
 
-print("Executing dumping script (takes around 1m40s for a full dump...")
-# Execute the dumping script
-res = pyb.execfile(rfunit_py_path)
-if b'RF Unit was not detected' in res:
-    print("RF Unit not detected, exiting!")
-    exit(2)
-elif b'File written' not in res:
-    print("Failed dump RF unit")
-    print("Script result:")
-    print(res)
-    exit(3)
+# Cleanup stale files
+if pyb.fs_exists(DUMP_FILENAME):
+  pyb.fs_rm(DUMP_FILENAME)
+if pyb.fs_exists(FLASH_FILENAME):
+  pyb.fs_rm(FLASH_FILENAME)
 
-# Copy dump from micropython filesystem
-dump_bytes = pyb.fs_get("dump.bin", dump_path)
-print(f"Dump copied to {dump_path}")
+if do_flash:
+  print("Copying flash.bin to micropython device...")
+  pyb.fs_put(flash_path, "flash.bin")
+
+progress_bar: tqdm = None
+
+data_buf = bytearray()
+def data_consumer(data: bytes):
+    # Read data from micropython device via serial, byte by byte
+    global data_buf, progress_bar
+    data_buf += data
+    if data == b'\n':
+      msg = bytes(data_buf).decode("utf-8").strip()
+      if msg.startswith("0x"):
+        offset = int(msg, 16)
+        # Progress
+        if not progress_bar:
+          progress_bar = tqdm(
+            total=FLASH_FILESIZE,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            miniters=1
+          )
+        progress_bar.update(offset - progress_bar.n)
+      elif msg:
+        print(msg)
+ 
+      data_buf.clear()
+
+print("Executing script...")
+with open(rfunit_py_path, "rb") as f:
+    script_data = f.read()
+
+pyb.exec_(script_data, data_consumer)
+
+if progress_bar:
+  progress_bar.close()
+
+if do_dump:
+  print("Copying dump from micropython filesystem")
+  pyb.fs_get("dump.bin", dump_path)
+  print(f"Dump copied to {dump_path}")
 
 pyb.exit_raw_repl()
 exit(0)
