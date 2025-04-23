@@ -150,6 +150,7 @@ STATUS_READY = 0x80
 STATUS_ERROR = 0x04
 STATUS_LDROM = 0x0C
 STATUS_BUSY = 0x10
+STATUS_BOOT_LDROM_IN_PROGRESS = 0x88
 
 """
 Registers
@@ -242,8 +243,7 @@ class RfUnitI2C:
                     print("wait_busy: Got error status!")
                     print(f"Error: {self.read_error_string()}")
                     return False
-                elif status == 0x88:
-                    # Ignore
+                elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
                     pass
                 else:
                     return True
@@ -272,18 +272,7 @@ class RfUnitI2C:
                 elif status & STATUS_BUSY == STATUS_BUSY:
                     sleep_count += 1
                     time.sleep(0.5)
-                    # This print will be filtered by micropython, but solves the hanging
-                    """
-                    File "DuRfUnitI2C/vendor/pyboard.py", line 484, in exec_raw
-                        return self.follow(timeout, data_consumer)
-                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                    File "DuRfUnitI2C/vendor/pyboard.py", line 394, in follow
-                        raise PyboardError("timeout waiting for first EOF reception")
-                    vendor.pyboard.PyboardError: timeout waiting for first EOF reception
-                    """
-                    sys.stdout.write("\n")
-                elif status == 0x88:
-                    # Ignore
+                elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
                     pass
                 else:
                     print(f"wait_for_status: Unknown status: {status:02x}")
@@ -361,6 +350,7 @@ class RfUnitI2C:
         return res[2:6]
 
     def boot_to_ldrom(self):
+        WAIT_SECS = 10
         challenge = self.get_timer_value()
         response = gen_challenge_response(challenge)
 
@@ -368,7 +358,17 @@ class RfUnitI2C:
         cmd_bytes.extend(response)
 
         self.dev.write(cmd_bytes)
-        time.sleep(4)
+
+        print(f"Waiting for {WAIT_SECS} seconds...")
+        start_time = time.time()
+        # This loop is necessary for micropython to not fail due to timeout
+        while (time.time() - start_time) < WAIT_SECS:
+            sys.stdout.write("\n")
+            time.sleep(1)
+        print("Checking if LDROM was reached...")
+
+        self.init()
+        self.stop()
         return self.wait_for_status(STATUS_LDROM)
 
     def boot_to_aprom(self):
