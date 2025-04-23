@@ -38,6 +38,7 @@ Depending on the device, pull-up resistors might be necessary.
 
 - Play sounds
 - Dump flash
+- Write flash
 
 ## Usage
 
@@ -45,7 +46,8 @@ Depending on the device, pull-up resistors might be necessary.
 - Install python requirements, preferrably in a python venv
   - GreatFET: `pip install greatfet`
   - Raspberry Pi (not Pico): `pip install smbus2`
-  - Micropython: `pip install pyserial`
+  - Micropython: `pip install pyserial tqdm`
+- For flashing: Copy `flash.bin` next to script/executable
 - Execute `rfunit.py` (see below for micropython)
 
 ### Micropython
@@ -54,6 +56,7 @@ Check [Pyboard tool](https://docs.micropython.org/en/latest/reference/pyboard.py
 
 Easy:
 
+- For flashing: Copy `flash.bin` next to script/executable
 - Execute `micropython_rfunit.py`
 
 Manual:
