@@ -133,9 +133,6 @@ with open(rfunit_py_path, "rb") as f:
 
 pyb.exec_(script_data, data_consumer)
 
-if progress_bar:
-  progress_bar.close()
-
 if do_dump:
   print("Copying dump from micropython filesystem")
   pyb.fs_get("dump.bin", dump_path)
