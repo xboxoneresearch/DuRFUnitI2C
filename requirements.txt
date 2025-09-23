@@ -2,6 +2,8 @@
 greatfet
 # Only for raspberry pi
 smbus2
+# Only for FACET / FT4232H
+pyftdi
 # Pyboard / micropython
 pyserial
 # pyinstaller / micropython

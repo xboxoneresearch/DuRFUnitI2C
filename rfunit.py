@@ -58,6 +58,44 @@ class GreatFetDevice(I2CClient):
     def transmit(self, data: List[int], read_len: int) -> List[int]:
         return self.dev.transmit(data, read_len)
 
+class Ft4232Device(I2CClient):
+    def __init__(self):
+        from ftdi_i2c_bb import FtdiBitBangI2C
+        self.i2c = FtdiBitBangI2C()
+
+    def scan(self) -> List[int]:
+        return self.i2c.scan()
+
+    def read(self, read_len: int) -> List[int]:
+        data = []
+
+        self.i2c.start()
+        # Announce read
+        if not self.i2c.write_byte((I2C_ADDR << 1) | 1):
+            print("No ack for read...")
+
+        # Ack all but the last read
+        for i in range(read_len - 1):
+            data.append(self.i2c.read_byte(ack=True))
+        data.append(self.i2c.read_byte(ack=False))
+
+        self.i2c.stop()
+        return data
+
+    def write(self, data: List[int]) -> None:
+        self.i2c.start()
+        # Announce write
+        if not self.i2c.write_byte((I2C_ADDR << 1) | 0):
+            print("No ack for write...")
+
+        for byte in data:
+            self.i2c.write_byte(byte)
+
+        self.i2c.stop()
+
+    def transmit(self, data: List[int], read_len: int) -> List[int]:
+        self.write(data)
+        return self.read(read_len)
 
 class RPiDevice(I2CClient):
     def __init__(self, bus_id: int = 1):
@@ -465,6 +503,7 @@ def do_flash(dev: RfUnitI2C, f: BufferedReader):
 class Devices:
     GREATFET = "greatfet"
     RPI = "rpi"
+    FACET = "facet"
     DUMMY = "dummy"
 
 DUMP_FILENAME = "dump.bin"
@@ -552,13 +591,15 @@ if __name__ == "__main__":
     else:
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument("device", choices=["greatfet", "rpi"], help="Device type to use")
+        parser.add_argument("device", choices=["greatfet", "rpi", "facet"], help="Device type to use")
         args = parser.parse_args()
 
         if args.device == Devices.GREATFET:
             device = GreatFetDevice()
         elif args.device == Devices.RPI:
             device = RPiDevice()
+        elif args.device == Devices.FACET:
+            device = Ft4232Device()
         else:
             raise NotImplementedError()
 
