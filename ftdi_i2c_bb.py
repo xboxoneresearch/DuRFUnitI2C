@@ -50,7 +50,7 @@ class FtdiBitBangI2C:
 
     def scan(self) -> list[int]:
         res = []
-        for addr in range(0x7F):
+        for addr in range(1, 0x7F):
             self.start()
             if self.write_byte((addr << 1) | 1):
                 res.append(addr)
@@ -99,31 +99,3 @@ class FtdiBitBangI2C:
         self.write_bit(0 if ack else 1)
         return val
 
-
-if __name__ == "__main__":
-    i2c = FtdiBitBangI2C()
-
-    try:
-        DEV_ADDR = 0x50  # Example: 24C02 EEPROM
-        MEM_ADDR = 0x00
-
-        # Write: set memory pointer
-        i2c.start()
-        if not i2c.write_byte((DEV_ADDR << 1) | 0):
-            print("No ACK on device address (write)")
-        else:
-            i2c.write_byte(MEM_ADDR)
-        i2c.stop()
-
-        # Read 4 bytes
-        i2c.start()
-        i2c.write_byte((DEV_ADDR << 1) | 1)  # read
-        data = []
-        for i in range(4):
-            data.append(i2c.read_byte(ack=(i < 3)))
-        i2c.stop()
-
-        print("Read data:", data)
-
-    finally:
-        i2c.close()

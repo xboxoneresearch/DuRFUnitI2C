@@ -72,7 +72,7 @@ class Ft4232Device(I2CClient):
         self.i2c.start()
         # Announce read
         if not self.i2c.write_byte((I2C_ADDR << 1) | 1):
-            print("No ack for read...")
+            raise Exception("No ack for read...")
 
         # Ack all but the last read
         for i in range(read_len - 1):
@@ -86,7 +86,7 @@ class Ft4232Device(I2CClient):
         self.i2c.start()
         # Announce write
         if not self.i2c.write_byte((I2C_ADDR << 1) | 0):
-            print("No ack for write...")
+            raise Exception("No ack for write...")
 
         for byte in data:
             self.i2c.write_byte(byte)
