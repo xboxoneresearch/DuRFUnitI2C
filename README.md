@@ -7,6 +7,13 @@
 
 Technical infos: <https://xboxoneresearch.github.io/wiki/hardware/rf-unit/>
 
+## Kudos
+
+Special thanks to:
+
+- [flynnyfoo](https://github.com/FJCFJC123) for the heavy lifting on the audio format decoding and GUI work <3
+- [craftbenmine](https://github.com/craftbenmine) for the initial hardware experiments, testing and suggestions
+
 ## Requirements
 
 - (Xbox One PHAT/One S) RF Unit board
@@ -71,6 +78,18 @@ Xbox One S
   - Micropython: `pip install pyserial tqdm`
 - For flashing: Copy `flash.bin` next to script/executable
 - Execute `rfunit.py` (see below for micropython)
+
+### GUI
+
+For interactive control (play sounds, dump/flash, raw command TX/RX), run:
+
+- `python rfunit_gui.py`
+
+Device notes:
+
+- GreatFET on Windows: select `greatfet`
+- Pi Pico running MicroPython: select `pico` (leave port blank and click `Detect`)
+- Raspberry Pi (Linux): select `rpi`
 
 ### Micropython
 

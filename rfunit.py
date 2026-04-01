@@ -61,6 +61,11 @@ class GreatFetDevice(I2CClient):
 
 class RPiDevice(I2CClient):
     def __init__(self, bus_id: int = 1):
+        if os.name == "nt":
+            raise RuntimeError(
+                "RPiDevice is only supported on Linux (smbus2 requires fcntl/ioctl + /dev/i2c-*). "
+                "Run this on the Raspberry Pi, or use the GreatFET backend on Windows."
+            )
         # Use I2C1 by default, I2C0 is reserved for HAT EEPROM
         from smbus2 import SMBus
         self.bus = SMBus(bus_id)
@@ -210,13 +215,14 @@ def gen_challenge_response(challenge: List[int]) -> List[int]:
     return list(struct.pack("<I", res))
 
 class RfUnitI2C:
-    def __init__(self, dev: I2CClient):
+    def __init__(self, dev: I2CClient, logger=None):
         self.old_status = 0
         self.dev = dev
+        self.log = logger if logger is not None else print
 
     def detect(self) -> bool:
         ids = self.dev.scan()
-        print("Discovered devices: ", ids)
+        self.log(f"Discovered devices: {ids}")
         return I2C_ADDR in ids
 
     def read_status(self) -> int:
@@ -240,8 +246,8 @@ class RfUnitI2C:
                     time.sleep(0.1)
                 elif (status & STATUS_ERROR == STATUS_ERROR) and (status & STATUS_LDROM != STATUS_LDROM):
                     # Error flag seems always set in LDROM
-                    print("wait_busy: Got error status!")
-                    print(f"Error: {self.read_error_string()}")
+                    self.log("wait_busy: Got error status!")
+                    self.log(f"Error: {self.read_error_string()}")
                     return False
                 elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
                     pass
@@ -250,7 +256,7 @@ class RfUnitI2C:
             except OSError:
                 pass
         
-        print("wait_busy: Timeout")
+        self.log("wait_busy: Timeout")
         return False
 
     def wait_for_status(self, target_status: int) -> bool:
@@ -266,8 +272,8 @@ class RfUnitI2C:
                     return True
                 elif (status & STATUS_ERROR == STATUS_ERROR) and (status & STATUS_LDROM != STATUS_LDROM):
                     # Error flag seems always set in LDROM
-                    print("wait_for_status: Got error status!")
-                    print(f"Error: {self.read_error_string()}")
+                    self.log("wait_for_status: Got error status!")
+                    self.log(f"Error: {self.read_error_string()}")
                     return False
                 elif status & STATUS_BUSY == STATUS_BUSY:
                     sleep_count += 1
@@ -275,19 +281,23 @@ class RfUnitI2C:
                 elif status == STATUS_BOOT_LDROM_IN_PROGRESS:
                     pass
                 else:
-                    print(f"wait_for_status: Unknown status: {status:02x}")
+                    self.log(f"wait_for_status: Unknown status: {status:02x}")
                     return False
             except OSError:
                 pass
         
-        print("wait_for_status: Timeout")
+        self.log("wait_for_status: Timeout")
         return False
 
     def _read_interrupt(self) -> List[int]:
         return self.dev.transmit([CMD_INTERRUPT_READ_xC0], 0)
 
     def read_register(self, register: int) -> List[int]:
-        return self.dev.transmit([CMD_REG_READ_xC1, register], 4)
+        # Wiki notes 2 leading status bytes (so total response is 6 bytes), but some clients behave differently.
+        res = self.dev.transmit([CMD_REG_READ_xC1, register], 6)
+        if len(res) >= 6:
+            return res[2:6]
+        return res
 
     def _write_register(self, register: int, data: List[int]):
         write_data = [CMD_REG_WRITE_x48]
@@ -295,6 +305,9 @@ class RfUnitI2C:
         write_data.extend(data)
 
         self.dev.write(write_data)
+
+    def write_register(self, register: int, data: List[int]):
+        self._write_register(register, data)
 
     def init(self):
         self._write_register(0x0C, [0x01])
@@ -359,13 +372,13 @@ class RfUnitI2C:
 
         self.dev.write(cmd_bytes)
 
-        print(f"Waiting for {WAIT_SECS} seconds...")
+        self.log(f"Waiting for {WAIT_SECS} seconds...")
         start_time = time.time()
         # This loop is necessary for micropython to not fail due to timeout
         while (time.time() - start_time) < WAIT_SECS:
             sys.stdout.write("\n")
             time.sleep(1)
-        print("Checking if LDROM was reached...")
+        self.log("Checking if LDROM was reached...")
 
         self.init()
         self.stop()
