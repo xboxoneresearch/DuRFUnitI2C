@@ -1,0 +1,13 @@
+[project]
+name = "vpe-extract"
+version = "0.1.0"
+description = "ISD9160 VPE editor"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.4.4",
+    "scipy>=1.17.1",
+    "sounddevice>=0.5.5",
+    "darkdetect>=0.8.0",
+    "sv-ttk>=2.6.1",
+]
