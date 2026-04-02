@@ -162,10 +162,8 @@ class FirmwareGUI:
             details = ""
             if is_vpe and seg.size >= 16:
                 hdr = VpeSegmentHeader.from_bytes(seg.data)
-                sr = 32000 if hdr.num_subbands > 14 else 16000
-                dur = hdr.num_frames * hdr.samples_per_frame / sr if sr else 0
                 details = (
-                    f"{sr // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {dur:.1f}s)"
+                    f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
                 )
             else:
                 sr_map = {

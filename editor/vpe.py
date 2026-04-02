@@ -125,6 +125,16 @@ class VpeSegmentHeader:
     # int16
     samples_per_frame: int
 
+    @property
+    def samplerate(self) -> int:
+        return 32000 if self.num_subbands > 14 else 16000
+
+    @property
+    def duration_secs(self) -> float:
+        if self.samplerate:
+            return self.num_frames * self.samples_per_frame / self.samplerate
+        return 0.0
+
     @classmethod
     def from_bytes(cls, buf: bytes) -> "VpeSegmentHeader":
         deserialized = struct.unpack_from(VpeSegmentHeader.struct_format(), buf, 0)
@@ -1803,11 +1813,10 @@ class VPEEncoder:
             raise ValueError("No frames found in segment")
 
         # WAV must match expected rate + exact sample count for in-place replacement.
-        expected_sr = 32000 if header.num_subbands > 14 else 16000
         pcm, sr = self._read_wav_mono_16(wav_path)
-        if sr != expected_sr:
+        if sr != header.samplerate:
             raise ValueError(
-                f"WAV sample rate must be {expected_sr}Hz (got {sr}Hz): {wav_path}"
+                f"WAV sample rate must be {header.samplerate}Hz (got {sr}Hz): {wav_path}"
             )
         expected_samples = num_frames * header.samples_per_frame
         if len(pcm) != expected_samples:
