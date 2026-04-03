@@ -290,6 +290,7 @@ class EncodingProfile:
     sf_offset: float
 
 ENCODING_BEST = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
+ENCODING_WORST = EncodingProfile(0xBD, 7000, 4000, 14, 80, 320, 1.0)
 
 # ============================================================================
 # Bitstream Reader (matches vpe_read_bit behavior)
