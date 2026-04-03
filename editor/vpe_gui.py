@@ -23,8 +23,11 @@ from vpe import (
     ISD9160Firmware,
     AudioSegment,
     VPEEncoder,
+    VPE_AUDIO_DATA_LIMIT,
+    VPE_DATA_BOUNDARY_ADDR,
     VpeSegmentHeader,
     ENCODING_BEST,
+    ENCODING_PRESETS,
     DPCMSegmentHeader,
     EncodingProfile,
     LibrarySegEntry,
@@ -46,7 +49,10 @@ class FirmwareGUI:
         self.decoder: FirmwareDecoderContext
         self.fw: ISD9160Firmware
         self.fw_path: str  # path to loaded .bin
-        self.creator_segments: list[AudioSegment] = [AudioSegment.empty()] * 9
+        self.creator_segments: list[AudioSegment] = [
+            AudioSegment.empty() for _ in range(9)
+        ]
+        self.quality_var = tk.StringVar(value=next(iter(ENCODING_PRESETS)))
 
         self._build_toolbar()
         self._build_tabs()
@@ -95,10 +101,28 @@ class FirmwareGUI:
         canvas.create_window((0, 0), window=self.creator_inner, anchor=tk.NW)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        controls = ttk.Frame(self.tab_creator)
+        controls.pack(fill=tk.X, padx=6, pady=(0, 6))
+
+        ttk.Label(controls, text="Quality preset:").pack(side=tk.LEFT)
+
+        self.quality_combo = ttk.Combobox(
+            controls,
+            textvariable=self.quality_var,
+            values=list(ENCODING_PRESETS.keys()),
+            state="readonly",
+            width=24,
+        )
+        self.quality_combo.pack(side=tk.LEFT, padx=(6, 0))
+        self.quality_combo.bind(
+            "<<ComboboxSelected>>", lambda _evt: self._update_space_indicator()
+        )
+
         self.save_btn = ttk.Button(
-            self.tab_creator, text="Save Firmware As...", command=self._save_new_fw, state=tk.DISABLED
+            controls, text="Save Firmware As...", command=self._save_new_fw, state=tk.DISABLED
         )
         self.save_btn.pack(side=tk.LEFT, padx=(8, 0))
+
 
     def _build_free_space_indicator(self):
         frame = ttk.LabelFrame(self.root, text="Used space")
@@ -112,6 +136,10 @@ class FirmwareGUI:
         # place the progressbar
         #pb.grid(column=0, row=0, columnspan=2, padx=10, pady=20)
         self.pb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.remaining_label = ttk.Label(frame, text="~0.0s left")
+        self.remaining_label.pack(side=tk.RIGHT, padx=(12, 0))
+
         self.pb_label = ttk.Label(frame, text="0%")
         self.pb_label.pack(side=tk.RIGHT, padx=(12, 0))
         # self.pb['value'] = 10.0
@@ -147,19 +175,24 @@ class FirmwareGUI:
 
         self.fw_path = path
         self.decoder = FirmwareDecoderContext(self.fw.data)
+        self.creator_segments = [
+            AudioSegment(self.fw.get_segment(idx).data)
+            for idx in range(self.fw.seg_count)
+        ]
         self.fw_label.configure(
             text=f"{os.path.basename(path)}  ({self.fw.seg_count} segments)"
         )
         self.save_btn.configure(state=tk.NORMAL)
         self._log(f"Loaded {path}  —  {self.fw.seg_count} audio segments found")
         self._populate_segments()
+        self._populate_creator()
 
     # ------------------------------------------------------------------ save
     def _save_new_fw(self):
         if not self.fw.audiodata_area_known:
             self._log("Audiodata area not known?!?")
             return
-        
+
         fw_buf = bytearray(self.fw.data)
         if not fw_buf:
             self._log("No firmware loaded.. how did you get here?")
@@ -167,24 +200,54 @@ class FirmwareGUI:
 
         lib_entry_ptr = self.fw.seg_table_ptr
         data_offset = self.fw.audiodata_start_offset
-        end_offset = self.fw.audiodata_end_offset
+        audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(fw_buf))
 
-        # Zero out existing audio data
-        fw_buf[data_offset:end_offset] = self.fw.audiodata_total_size * b"\x00"
+        if data_offset >= audio_limit:
+            messagebox.showerror(
+                "Error",
+                (
+                    f"Invalid audio data region: start=0x{data_offset:05X}, "
+                    f"limit=0x{audio_limit:05X}"
+                ),
+            )
+            return
+
+        for idx, segment in enumerate(self.creator_segments):
+            if segment.is_empty():
+                messagebox.showerror(
+                    "Error",
+                    f"Segment {idx} is empty. Inject WAV/RAW or use Make Stub first.",
+                )
+                return
+
+        fw_buf[data_offset:audio_limit] = b"\xFF" * (audio_limit - data_offset)
 
         current_pos = data_offset
 
         for idx, segment in enumerate(self.creator_segments):
             data_len = len(segment.data)
-            lib_entry = LibrarySegEntry(data_offset, data_offset + data_len + 1)
+            next_pos = current_pos + data_len
+            if next_pos > audio_limit:
+                messagebox.showerror(
+                    "Error",
+                    (
+                        f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
+                        f"while writing segment {idx}."
+                    ),
+                )
+                return
+
+            lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
 
             # Overwrite entry in fw buffer
             lib_entry_offset = lib_entry_ptr + (idx * 8)
             fw_buf[lib_entry_offset:lib_entry_offset + 8] = lib_entry.to_bytes()
 
             # Overwrite audio data in fw buffer
-            fw_buf[current_pos:current_pos+data_len] = segment.data
-            current_pos += data_len
+            fw_buf[current_pos:next_pos] = segment.data
+            current_pos = next_pos
+
+        struct.pack_into("<I", fw_buf, VPE_DATA_BOUNDARY_ADDR, current_pos)
 
         path = filedialog.asksaveasfilename(
             title="Save Patched Firmware",
@@ -199,6 +262,26 @@ class FirmwareGUI:
         self._log(f"Saved patched firmware to {path}")
 
     # ------------------------------------------------------------------ rows
+    def _selected_profile(self) -> EncodingProfile:
+        return ENCODING_PRESETS.get(self.quality_var.get(), ENCODING_BEST)
+
+    def _update_space_indicator(self):
+        total_used = sum(len(seg) for seg in self.creator_segments)
+        if hasattr(self, "fw"):
+            max_bytes = max(1, VPE_AUDIO_DATA_LIMIT - self.fw.audiodata_start_offset)
+            pct = min(100.0, (total_used / max_bytes) * 100.0)
+            remaining_bytes = max(0, max_bytes - total_used)
+            remaining_secs = self._selected_profile().estimate_duration_secs(
+                remaining_bytes
+            )
+            self.pb["value"] = pct
+            self.pb_label.configure(text=f"{pct:.1f}% ({total_used}/{max_bytes} bytes)")
+            self.remaining_label.configure(text=f"~{remaining_secs:.1f}s left")
+        else:
+            self.pb["value"] = 0
+            self.pb_label.configure(text=f"0% ({total_used} bytes)")
+            self.remaining_label.configure(text="~0.0s left")
+
     def _populate_segments(self):
         # Clear old rows
         for child in self.seg_inner.winfo_children():
@@ -268,7 +351,7 @@ class FirmwareGUI:
             child.destroy()
 
         # Header row
-        headers = ("Seg", "Codec", "Size", "Details", "", "", "")
+        headers = ("Seg", "Codec", "Size", "Details", "", "", "", "")
         for col, hdr in enumerate(headers):
             lbl = ttk.Label(self.creator_inner, text=hdr, font=("", 9, "bold"))
             lbl.grid(row=0, column=col, padx=4, pady=(2, 4), sticky=tk.W)
@@ -304,6 +387,13 @@ class FirmwareGUI:
                 row=row_idx, column=3, padx=4, sticky=tk.W
             )
 
+            stub_btn = ttk.Button(
+                self.creator_inner,
+                text="Make Stub",
+                command=lambda i=idx: self._make_stub_seg(i),
+            )
+            stub_btn.grid(row=row_idx, column=4, padx=4)
+
             play_btn = ttk.Button(
                 self.creator_inner, text="Play", command=lambda s=seg: self._play_seg(s)
             )
@@ -324,8 +414,7 @@ class FirmwareGUI:
             )
             inj_raw_btn.grid(row=row_idx, column=7, padx=4)
         
-        # TODO: Populate progress bar
-        #self.pb["value"] = 
+        self._update_space_indicator()
 
     # ------------------------------------------------------------------ playback
     def _play_seg(self, seg: AudioSegment):
@@ -429,6 +518,12 @@ class FirmwareGUI:
 
     # ------------------------------------------------------------------ inject
     def _inject_seg(self, index: int):
+        if not hasattr(self, "fw"):
+            messagebox.showerror(
+                "Error", "Open a firmware image before injecting WAV audio."
+            )
+            return
+
         path = filedialog.askopenfilename(
             title=f"Inject WAV into Segment {index}",
             filetypes=[("WAV files", "*.wav"), ("All files", "*.*")],
@@ -461,28 +556,46 @@ class FirmwareGUI:
             profile.samples_per_frame
         )
 
-    def _do_inject_wav(self, index: int, wav_path: str):
-        encoding_profile = ENCODING_BEST
-        encoder = VPEEncoder(self.fw.data)
-        new_frames, num_frames = encoder.encode_vpe_segment_frames_from_wav(wav_path, encoding_profile)
-        seg_header = self.create_vpe_segment_header(encoding_profile, num_frames)
-        self.creator_segments[index] = AudioSegment(seg_header.to_bytes()+new_frames)
-        self._log_ts(
-            f"  Segment {index} injected OK  ({len(new_frames)} bytes replaced)"
-        )
-        # Refresh view
+    def _make_stub_seg(self, index: int):
+        profile = self._selected_profile()
+        self.creator_segments[index] = AudioSegment.vpe_stub(profile)
+        hdr = self.creator_segments[index].get_header()
+        if isinstance(hdr, VpeSegmentHeader):
+            self._log(
+                f"Segment {index} converted to VPE stub ({hdr.samplerate} Hz, {hdr.num_frames} frame, {len(self.creator_segments[index])} bytes)"
+            )
         self._populate_creator()
+
+    def _do_inject_wav(self, index: int, wav_path: str):
+        try:
+            encoding_profile = self._selected_profile()
+            encoder = VPEEncoder(self.fw.data)
+            new_frames, num_frames = encoder.encode_vpe_segment_frames_from_wav(
+                wav_path, encoding_profile
+            )
+            seg_header = self.create_vpe_segment_header(encoding_profile, num_frames)
+            self.creator_segments[index] = AudioSegment(
+                seg_header.to_bytes() + new_frames
+            )
+            self._log_ts(
+                f"  Segment {index} injected OK ({num_frames} frames, {len(new_frames)} bytes, resampled to {encoding_profile.samplerate} Hz mono)"
+            )
+            self.root.after(0, self._populate_creator)
+        except Exception as e:
+            self._log_ts(f"  Inject WAV error: {e}")
 
     def _do_inject_raw(self, index: int, raw_path: str):
-        with open(raw_path, "rb") as f:
-            data = f.read()
+        try:
+            with open(raw_path, "rb") as f:
+                data = f.read()
 
-        self.creator_segments[index] = AudioSegment(data)
-        self._log_ts(
-            f"  Segment {index} injected OK  ({len(data)} bytes replaced)"
-        )
-        # Refresh view
-        self._populate_creator()
+            self.creator_segments[index] = AudioSegment(data)
+            self._log_ts(
+                f"  Segment {index} injected OK  ({len(data)} bytes replaced)"
+            )
+            self.root.after(0, self._populate_creator)
+        except Exception as e:
+            self._log_ts(f"  Inject RAW error: {e}")
 
     # ------------------------------------------------------------------ threading
     def _run_in_thread(self, fn, *args):
