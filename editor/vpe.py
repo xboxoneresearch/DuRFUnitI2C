@@ -288,7 +288,7 @@ class EncodingProfile:
     # scale factor offset
     sf_offset: float
 
-ENCODING_BEST = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 10.0)
+ENCODING_BEST = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
 
 # ============================================================================
 # Bitstream Reader (matches vpe_read_bit behavior)
