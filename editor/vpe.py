@@ -29,6 +29,7 @@ except ImportError:
 
 try:
     from scipy.fft import dct as scipy_dct
+    from scipy.signal import resample_poly as scipy_resample_poly
 
     HAS_SCIPY = True
 except ImportError:
@@ -40,6 +41,8 @@ except ImportError:
 
 # VPE Firmware Header at 0x8000
 VPE_HEADER_ADDR = 0x8000
+VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
+VPE_AUDIO_DATA_LIMIT = 0x23000
 VPE_MAGIC = 0x1155AAFF
 DATA_SECTION_END = 0x233FF
 
@@ -118,6 +121,20 @@ class AudioSegment:
     @classmethod
     def empty(cls) -> AudioSegment:
         return cls(b"")
+
+    @classmethod
+    def vpe_stub(cls, profile: EncodingProfile) -> AudioSegment:
+        header = VpeSegmentHeader(
+            profile.first_byte,
+            0xFF,
+            1,
+            profile.bitrate,
+            profile.subtype,
+            profile.bits_per_frame,
+            profile.num_subbands,
+            profile.samples_per_frame,
+        )
+        return cls(header.to_bytes() + (b"\xFF" * profile.bytes_per_frame))
 
     @property
     def codec_type(self) -> int:
@@ -289,8 +306,32 @@ class EncodingProfile:
     # scale factor offset
     sf_offset: float
 
-ENCODING_BEST = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
-ENCODING_WORST = EncodingProfile(0xBD, 7000, 4000, 14, 80, 320, 1.0)
+    @property
+    def samplerate(self) -> int:
+        return 32000 if self.num_subbands > 14 else 16000
+
+    @property
+    def bytes_per_frame(self) -> int:
+        return self.bits_per_frame // 8
+
+    @property
+    def bytes_per_second(self) -> float:
+        return self.bytes_per_frame * self.samplerate / self.samples_per_frame
+
+    def estimate_duration_secs(self, available_bytes: int) -> float:
+        payload_bytes = max(0, available_bytes - len(VpeSegmentHeader(0, 0, 0, 0, 0, 0, 0, 0)))
+        if self.bytes_per_frame <= 0 or self.samples_per_frame <= 0 or self.samplerate <= 0:
+            return 0.0
+        frame_count = payload_bytes // self.bytes_per_frame
+        return frame_count * self.samples_per_frame / self.samplerate
+
+ENCODING_32KHZ = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
+ENCODING_16KHZ = EncodingProfile(0xBD, 14000, 16000, 14, 320, 320, 1.0)
+ENCODING_PRESETS = {
+    "32 kHz / 48 kbps VPE": ENCODING_32KHZ,
+    "16 kHz / 16 kbps VPE": ENCODING_16KHZ,
+}
+ENCODING_BEST = ENCODING_32KHZ
 
 # ============================================================================
 # Bitstream Reader (matches vpe_read_bit behavior)
@@ -1273,13 +1314,49 @@ class VPEEncoder:
             sw = wav.getsampwidth()
             sr = wav.getframerate()
             n = wav.getnframes()
-            if ch != 1:
-                raise ValueError(f"WAV must be mono (got {ch} channels): {path}")
             if sw != 2:
                 raise ValueError(f"WAV must be 16-bit PCM (got {sw * 8}-bit): {path}")
             raw = wav.readframes(n)
-        samples = struct.unpack_from(f"<{n}h", raw, 0) if n else ()
-        return np.array(samples, dtype=np.int16), int(sr)
+
+        samples = np.frombuffer(raw, dtype="<i2")
+        if ch == 1:
+            return samples.astype(np.int16, copy=True), int(sr)
+        if ch == 2:
+            if samples.size % 2:
+                samples = samples[:-1]
+            stereo = samples.reshape(-1, 2).astype(np.int32)
+            mono = np.clip((stereo[:, 0] + stereo[:, 1]) // 2, -32768, 32767)
+            return mono.astype(np.int16), int(sr)
+
+        raise ValueError(f"WAV must be mono or stereo (got {ch} channels): {path}")
+
+    @staticmethod
+    def _resample_pcm(pcm: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+        if src_rate == dst_rate:
+            return pcm.astype(np.int16, copy=True)
+        if pcm.size == 0:
+            return np.array([], dtype=np.int16)
+        if src_rate <= 0 or dst_rate <= 0:
+            raise ValueError(f"Invalid sample rate conversion {src_rate} -> {dst_rate}")
+
+        if HAS_SCIPY:
+            gcd = math.gcd(src_rate, dst_rate)
+            up = dst_rate // gcd
+            down = src_rate // gcd
+            out = scipy_resample_poly(
+                pcm.astype(np.float64),
+                up,
+                down,
+                window=("kaiser", 5.0),
+            )
+            return np.clip(np.rint(out), -32768, 32767).astype(np.int16)
+
+        dst_len = int(round(pcm.size * dst_rate / src_rate))
+        dst_len = max(dst_len, 1)
+        src_x = np.arange(pcm.size, dtype=np.float64)
+        dst_x = np.linspace(0.0, pcm.size - 1, dst_len, dtype=np.float64)
+        out = np.interp(dst_x, src_x, pcm.astype(np.float64))
+        return np.clip(np.rint(out), -32768, 32767).astype(np.int16)
 
     # --- Huffman encode tables ---
 
@@ -1942,11 +2019,17 @@ class VPEEncoder:
           5. Shift + quantize  -> Huffman-coded bitstream
         """
 
-        # WAV must match expected rate + exact sample count for in-place replacement.
+        # WAV is preprocessed to mono and resampled to the target profile rate.
         pcm, sr = self._read_wav_mono_16(wav_path)
+        pcm = self._resample_pcm(pcm, sr, profile.samplerate)
 
         samples_count = len(pcm)
-        num_frames = int(samples_count / profile.samples_per_frame)
+        num_frames = max(1, math.ceil(samples_count / profile.samples_per_frame))
+        padded_count = num_frames * profile.samples_per_frame
+        if samples_count < padded_count:
+            pcm = np.pad(pcm, (0, padded_count - samples_count), mode="constant")
+        elif samples_count > padded_count:
+            pcm = pcm[:padded_count]
 
         print(f"    SF calibration offset: {profile.sf_offset:.2f}")
 
