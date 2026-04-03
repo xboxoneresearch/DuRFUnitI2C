@@ -189,65 +189,7 @@ class FirmwareGUI:
 
     # ------------------------------------------------------------------ save
     def _save_new_fw(self):
-        if not self.fw.audiodata_area_known:
-            self._log("Audiodata area not known?!?")
-            return
-
-        fw_buf = bytearray(self.fw.data)
-        if not fw_buf:
-            self._log("No firmware loaded.. how did you get here?")
-            return
-
-        lib_entry_ptr = self.fw.seg_table_ptr
-        data_offset = self.fw.audiodata_start_offset
-        audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(fw_buf))
-
-        if data_offset >= audio_limit:
-            messagebox.showerror(
-                "Error",
-                (
-                    f"Invalid audio data region: start=0x{data_offset:05X}, "
-                    f"limit=0x{audio_limit:05X}"
-                ),
-            )
-            return
-
-        for idx, segment in enumerate(self.creator_segments):
-            if segment.is_empty():
-                messagebox.showerror(
-                    "Error",
-                    f"Segment {idx} is empty. Inject WAV/RAW or use Make Stub first.",
-                )
-                return
-
-        fw_buf[data_offset:audio_limit] = b"\xFF" * (audio_limit - data_offset)
-
-        current_pos = data_offset
-
-        for idx, segment in enumerate(self.creator_segments):
-            data_len = len(segment.data)
-            next_pos = current_pos + data_len
-            if next_pos > audio_limit:
-                messagebox.showerror(
-                    "Error",
-                    (
-                        f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
-                        f"while writing segment {idx}."
-                    ),
-                )
-                return
-
-            lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
-
-            # Overwrite entry in fw buffer
-            lib_entry_offset = lib_entry_ptr + (idx * 8)
-            fw_buf[lib_entry_offset:lib_entry_offset + 8] = lib_entry.to_bytes()
-
-            # Overwrite audio data in fw buffer
-            fw_buf[current_pos:next_pos] = segment.data
-            current_pos = next_pos
-
-        struct.pack_into("<I", fw_buf, VPE_DATA_BOUNDARY_ADDR, current_pos)
+        data = self.fw.patch_with_new_segments(self.creator_segments)
 
         path = filedialog.asksaveasfilename(
             title="Save Patched Firmware",
@@ -258,7 +200,7 @@ class FirmwareGUI:
         if not path:
             return
         with open(path, "wb") as f:
-            f.write(fw_buf)
+            f.write(data)
         self._log(f"Saved patched firmware to {path}")
 
     # ------------------------------------------------------------------ rows
@@ -544,18 +486,6 @@ class FirmwareGUI:
         self._log(f"Injecting RAW blob in segment {index}...")
         self._run_in_thread(self._do_inject_raw, index, path)
 
-    def create_vpe_segment_header(self, profile: EncodingProfile, num_frames: int) -> VpeSegmentHeader:
-        return VpeSegmentHeader(
-            profile.first_byte,
-            0xFF,
-            num_frames,
-            profile.bitrate,
-            profile.subtype,
-            profile.bits_per_frame,
-            profile.num_subbands,
-            profile.samples_per_frame
-        )
-
     def _make_stub_seg(self, index: int):
         profile = self._selected_profile()
         self.creator_segments[index] = AudioSegment.vpe_stub(profile)
@@ -564,21 +494,29 @@ class FirmwareGUI:
             self._log(
                 f"Segment {index} converted to VPE stub ({hdr.samplerate} Hz, {hdr.num_frames} frame, {len(self.creator_segments[index])} bytes)"
             )
+
+    def _do_inject_wav(self, index: int, wav_path: str):
+        encoding_profile = ENCODING_BEST
+        encoder = VPEEncoder(self.fw.data)
+        audio_segment = encoder.encode_wav_into_audio_segment(wav_path, encoding_profile)
+
+        self.creator_segments[index] = audio_segment
+        self._log_ts(
+            f"  Segment {index} injected OK  ({len(audio_segment)} bytes replaced)"
+        )
+        # Refresh view
         self._populate_creator()
 
     def _do_inject_wav(self, index: int, wav_path: str):
         try:
             encoding_profile = self._selected_profile()
             encoder = VPEEncoder(self.fw.data)
-            new_frames, num_frames = encoder.encode_vpe_segment_frames_from_wav(
+            audio_segment = encoder.encode_wav_into_audio_segment(
                 wav_path, encoding_profile
             )
-            seg_header = self.create_vpe_segment_header(encoding_profile, num_frames)
-            self.creator_segments[index] = AudioSegment(
-                seg_header.to_bytes() + new_frames
-            )
+            self.creator_segments[index] = audio_segment
             self._log_ts(
-                f"  Segment {index} injected OK ({num_frames} frames, {len(new_frames)} bytes, resampled to {encoding_profile.samplerate} Hz mono)"
+                f"  Segment {index} injected OK, resampled to {encoding_profile.samplerate} Hz mono)"
             )
             self.root.after(0, self._populate_creator)
         except Exception as e:

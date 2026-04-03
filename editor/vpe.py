@@ -2090,6 +2090,23 @@ class VPEEncoder:
 
         return bytes(out), num_frames
 
+    @staticmethod
+    def create_vpe_segment_header(profile: EncodingProfile, num_frames: int) -> VpeSegmentHeader:
+        return VpeSegmentHeader(
+            profile.first_byte,
+            0xFF,
+            num_frames,
+            profile.bitrate,
+            profile.subtype,
+            profile.bits_per_frame,
+            profile.num_subbands,
+            profile.samples_per_frame
+        )
+
+    def encode_wav_into_audio_segment(self, wav_path: str, profile: EncodingProfile) -> AudioSegment:
+        new_frames, num_frames = self.encode_vpe_segment_frames_from_wav(wav_path, profile)
+        seg_header = self.create_vpe_segment_header(profile, num_frames)
+        return AudioSegment(seg_header.to_bytes()+new_frames)
 
 # ============================================================================
 # DPCM Decoder
@@ -2742,62 +2759,58 @@ class ISD9160Firmware:
         entry = self.get_segment_library_entry(index)
         return AudioSegment(self.data[entry.start:entry.end + 1])
 
-    """
-    def patch_firmware_in_place(
-        self, out_firmware_path, replace_seg_raw=None, replace_vpe_frames=None
-    ):
-        Create a patched firmware image by replacing bytes inside existing segment boundaries.
+    def get_all_segments(self) -> list[AudioSegment]:
+        return [self.get_segment(i) for i in range(self.seg_count)]
 
-        replace_seg_raw: list of (idx:int, raw_path_or_bytes) to replace entire segment (must match size)
-        replace_vpe_frames: list of (idx:int, frames_path_or_bytes) to replace only VPE compressed frames
-                            (must match seg.size-16; first 16 bytes preserved)
+    def patch_with_new_segments(self, new_segments: list[AudioSegment]) -> bytes:
+        if not self.audiodata_area_known:
+            raise Exception("Audiodata area not known?!?")
+        
+        fw_buf = bytearray(self.data)
+        if not fw_buf:
+            raise Exception("No firmware loaded.. how did you get here?")
 
-        replace_seg_raw = replace_seg_raw or []
-        replace_vpe_frames = replace_vpe_frames or []
+        lib_entry_ptr = self.seg_table_ptr
+        data_offset = self.audiodata_start_offset
+        audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(fw_buf))
 
-        patched = bytearray(self.data)
+        if data_offset >= audio_limit:
+            raise Exception(
+                    f"Invalid audio data region: start=0x{data_offset:05X}, "
+                    f"limit=0x{audio_limit:05X}"
+            )
 
-        def _read_file_bytes(path_or_bytes):
-            if isinstance(path_or_bytes, (bytes, bytearray)):
-                return bytes(path_or_bytes)
-            with open(path_or_bytes, "rb") as f:
-                return f.read()
+        # Zero out existing audio data
+        fw_buf[data_offset:audio_limit] = b"\xFF" * (audio_limit - data_offset)
+        current_pos = data_offset
 
-        for idx, raw_path in replace_seg_raw:
-            seg = self.get_segment(idx)
-            if seg is None:
-                raise ValueError(f"Segment {idx} not found")
-            new_bytes = _read_file_bytes(raw_path)
-            if len(new_bytes) != seg.size:
-                raise ValueError(
-                    f"Segment {idx} size mismatch: firmware={seg.size} bytes, "
-                    f"replacement={len(new_bytes)} bytes"
+        for idx, segment in enumerate(new_segments):
+            if segment.is_empty():
+                raise Exception(
+                    f"Segment {idx} is empty. Inject WAV/RAW or use Make Stub first."
                 )
-            patched[seg.start : seg.end + 1] = new_bytes
 
-        for idx, frames_path in replace_vpe_frames:
-            seg = self.get_segment(idx)
-            if seg is None:
-                raise ValueError(f"Segment {idx} not found")
-            if seg.codec_type not in (0x1D, 0x1E):
-                raise ValueError(
-                    f"Segment {idx} is not VPE (codec=0x{seg.codec_type:02X})"
-                )
-            if seg.size < 16:
-                raise ValueError(f"Segment {idx} too small to be VPE (size={seg.size})")
-            new_frames = _read_file_bytes(frames_path)
-            expected = seg.size - 16
-            if len(new_frames) != expected:
-                raise ValueError(
-                    f"Segment {idx} VPE frames size mismatch: firmware={expected} bytes, "
-                    f"replacement={len(new_frames)} bytes"
-                )
-            # Preserve the first 16 bytes (segment header + VPE_FrameHeader), replace only frame payload.
-            patched[seg.start + 16 : seg.end + 1] = new_frames
+            data_len = len(segment.data)
+            next_pos = current_pos + data_len
 
-        with open(out_firmware_path, "wb") as f:
-            f.write(patched)
-    """
+            if next_pos > audio_limit:
+                raise Exception(
+                        f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
+                        f"while writing segment {idx}."
+                )
+
+            lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
+
+            # Overwrite entry in fw buffer
+            lib_entry_offset = lib_entry_ptr + (idx * 8)
+            fw_buf[lib_entry_offset:lib_entry_offset + 8] = lib_entry.to_bytes()
+
+            # Overwrite audio data in fw buffer
+            fw_buf[current_pos:next_pos] = segment.data
+            current_pos = next_pos
+
+        struct.pack_into("<I", fw_buf, VPE_DATA_BOUNDARY_ADDR, current_pos)
+        return bytes(fw_buf)
 
     @staticmethod
     def _write_wav(
@@ -2857,25 +2870,18 @@ def main():
         help="Write a patched firmware image to this path (enables patch mode)",
     )
     parser.add_argument(
-        "--replace-seg-raw",
+        "--inject-raw",
         action="append",
         nargs=2,
         metavar=("IDX", "RAW_BIN"),
         help="Patch: replace entire segment bytes (must match exact size). Can be repeated.",
     )
     parser.add_argument(
-        "--replace-vpe-frames",
+        "--inject-wav",
         action="append",
         nargs=2,
         metavar=("IDX", "FRAMES_BIN"),
         help="Patch: replace only VPE compressed frames (must match seg.size-16). Can be repeated.",
-    )
-    parser.add_argument(
-        "--inject-vpe-wav",
-        action="append",
-        nargs=2,
-        metavar=("IDX", "WAV"),
-        help="Patch: encode WAV into VPE and replace VPE frames for segment IDX (in-place). Requires --patch-out. Can be repeated.",
     )
     args = parser.parse_args()
 
@@ -2888,42 +2894,41 @@ def main():
     fw: ISD9160Firmware = ISD9160Firmware.from_filepath(args.firmware)
 
     if args.patch_out is not None:
-        replace_seg_raw = []
-        replace_vpe_frames = []
-        inject_vpe_wav = []
-        if args.replace_seg_raw:
-            for idx_s, path in args.replace_seg_raw:
-                replace_seg_raw.append((int(idx_s, 0), path))
-        if args.replace_vpe_frames:
-            for idx_s, path in args.replace_vpe_frames:
-                replace_vpe_frames.append((int(idx_s, 0), path))
-        if args.inject_vpe_wav:
-            for idx_s, path in args.inject_vpe_wav:
-                inject_vpe_wav.append((int(idx_s, 0), path))
-        if not replace_seg_raw and not replace_vpe_frames and not inject_vpe_wav:
+        new_segments = fw.get_all_segments()
+        inject_seg_raw: list[tuple[int, str]] = []
+        inject_seg_wav: list[tuple[int, str]] = []
+        if args.inject_raw:
+            for idx_s, path in args.inject_raw:
+                inject_seg_raw.append((int(idx_s, 0), path))
+        if args.inject_wav:
+            for idx_s, path in args.inject_wav:
+                inject_seg_wav.append((int(idx_s, 0), path))
+        if not inject_seg_raw and not inject_seg_wav:
             raise SystemExit(
-                "--patch-out requires at least one --replace-seg-raw, --replace-vpe-frames, or --inject-vpe-wav"
+                "--patch-out requires at least one --inject-raw or --inject-wav"
             )
+        if inject_seg_raw and inject_seg_wav:
+            seg_ids_raw = [i for (i, _) in inject_seg_raw]
+            seg_ids_wav = [i for (i, _) in inject_seg_wav]
+            # TODO: Check for overlaps
 
-        if inject_vpe_wav:
+        if inject_seg_wav:
             encoder = VPEEncoder(fw.data)
-            for idx, wav_path in inject_vpe_wav:
-                seg = fw.get_segment(idx)
-                if seg is None:
-                    raise ValueError(f"Segment {idx} not found")
-                if not seg.is_vpe:
-                    raise ValueError(
-                        f"Segment {idx} is not VPE"
-                    )
+            for idx, wav_path in inject_seg_wav:
                 print(f"\nEncoding WAV -> VPE for segment {idx}: {wav_path}")
-                new_frames = encoder.encode_vpe_segment_frames_from_wav(wav_path)
-                replace_vpe_frames.append((idx, new_frames))
+                audio_segment = encoder.encode_wav_into_audio_segment(wav_path, ENCODING_BEST)
+                new_segments[idx] = audio_segment
+        if inject_seg_raw:
+            for idx, raw_path in inject_seg_raw:
+                print(f"\nInjecting raw segment for index {idx}: {raw_path}")
+                with open(raw_path, "rb") as f:
+                    audio_segment = AudioSegment(f.read())
+                new_segments[idx] =  audio_segment
 
-        fw.patch_firmware_in_place(
-            args.patch_out,
-            replace_seg_raw=replace_seg_raw,
-            replace_vpe_frames=replace_vpe_frames,
-        )
+        new_fw_data = fw.patch_with_new_segments(new_segments)
+        with open(args.patch_out, "wb") as f:
+            f.write(new_fw_data)
+
         print(f"\nDone! Wrote patched firmware to {args.patch_out}")
         return
 
