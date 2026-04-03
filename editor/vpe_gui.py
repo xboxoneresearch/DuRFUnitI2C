@@ -4,7 +4,7 @@ ISD9160 VPE/DPCM Audio Firmware GUI
 Loads an ISD9160 firmware binary, displays all audio segments,
 and allows per-segment extract (to WAV) and inject (from WAV).
 """
-
+from __future__ import annotations
 import os
 import struct
 import sys

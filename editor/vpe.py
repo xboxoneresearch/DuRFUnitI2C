@@ -9,6 +9,7 @@ Supports:
 Usage:
     python vpe_extract.py <firmware.bin> [output_dir]
 """
+from __future__ import annotations
 import argparse
 import copy
 import math
