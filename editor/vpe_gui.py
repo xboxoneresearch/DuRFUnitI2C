@@ -4,7 +4,9 @@ ISD9160 VPE/DPCM Audio Firmware GUI
 Loads an ISD9160 firmware binary, displays all audio segments,
 and allows per-segment extract (to WAV) and inject (from WAV).
 """
+
 from __future__ import annotations
+
 import os
 import struct
 import sys
@@ -19,18 +21,18 @@ import sv_ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from vpe import (
-    FirmwareDecoderContext,
-    ISD9160Firmware,
-    AudioSegment,
-    VPEEncoder,
-    VPE_AUDIO_DATA_LIMIT,
-    VPE_DATA_BOUNDARY_ADDR,
-    VpeSegmentHeader,
     ENCODING_BEST,
     ENCODING_PRESETS,
+    VPE_AUDIO_DATA_LIMIT,
+    VPE_DATA_BOUNDARY_ADDR,
+    AudioSegment,
     DPCMSegmentHeader,
     EncodingProfile,
+    FirmwareDecoderContext,
+    ISD9160Firmware,
     LibrarySegEntry,
+    VPEEncoder,
+    VpeSegmentHeader,
 )
 
 
@@ -77,9 +79,9 @@ class FirmwareGUI:
         self.tab_playback = ttk.Frame(tabControl)
         self.tab_creator = ttk.Frame(tabControl)
 
-        tabControl.add(self.tab_playback, text ='Playback')
-        tabControl.add(self.tab_creator, text ='Creator')
-        tabControl.pack(expand = 1, fill ="both")
+        tabControl.add(self.tab_playback, text="Playback")
+        tabControl.add(self.tab_creator, text="Creator")
+        tabControl.pack(expand=1, fill="both")
 
     def _build_segment_list(self):
         frame = ttk.LabelFrame(self.tab_playback, text="Audio Segments")
@@ -119,22 +121,21 @@ class FirmwareGUI:
         )
 
         self.save_btn = ttk.Button(
-            controls, text="Save Firmware As...", command=self._save_new_fw, state=tk.DISABLED
+            controls,
+            text="Save Firmware As...",
+            command=self._save_new_fw,
+            state=tk.DISABLED,
         )
         self.save_btn.pack(side=tk.LEFT, padx=(8, 0))
-
 
     def _build_free_space_indicator(self):
         frame = ttk.LabelFrame(self.root, text="Used space")
         frame.pack(fill=tk.X, padx=6, pady=(6, 6))
         self.pb = ttk.Progressbar(
-            frame,
-            orient='horizontal',
-            mode='determinate',
-            length=100
+            frame, orient="horizontal", mode="determinate", length=100
         )
         # place the progressbar
-        #pb.grid(column=0, row=0, columnspan=2, padx=10, pady=20)
+        # pb.grid(column=0, row=0, columnspan=2, padx=10, pady=20)
         self.pb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.remaining_label = ttk.Label(frame, text="~0.0s left")
@@ -244,9 +245,7 @@ class FirmwareGUI:
             details = ""
             hdr = seg.get_header()
             if isinstance(hdr, VpeSegmentHeader):
-                details = (
-                    f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
-                )
+                details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
             elif isinstance(hdr, DPCMSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz"
             else:
@@ -278,12 +277,14 @@ class FirmwareGUI:
             ext_btn = ttk.Button(
                 self.seg_inner,
                 text="Extract WAV",
-                command=lambda s=seg,i=idx: self._extract_seg_wav(i, s),
+                command=lambda s=seg, i=idx: self._extract_seg_wav(i, s),
             )
             ext_btn.grid(row=row_idx, column=6, padx=4)
 
             inj_btn = ttk.Button(
-                self.seg_inner, text="Extract RAW", command=lambda s=seg,i=idx: self._extract_seg_raw(i, s)
+                self.seg_inner,
+                text="Extract RAW",
+                command=lambda s=seg, i=idx: self._extract_seg_raw(i, s),
             )
             inj_btn.grid(row=row_idx, column=7, padx=4)
 
@@ -306,9 +307,7 @@ class FirmwareGUI:
             details = ""
             hdr = seg.get_header()
             if isinstance(hdr, VpeSegmentHeader):
-                details = (
-                    f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
-                )
+                details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
             elif isinstance(hdr, DPCMSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz"
             else:
@@ -352,10 +351,12 @@ class FirmwareGUI:
             inj_btn.grid(row=row_idx, column=6, padx=4)
 
             inj_raw_btn = ttk.Button(
-                self.creator_inner, text="Inject RAW", command=lambda i=idx: self._inject_seg_raw(i)
+                self.creator_inner,
+                text="Inject RAW",
+                command=lambda i=idx: self._inject_seg_raw(i),
             )
             inj_raw_btn.grid(row=row_idx, column=7, padx=4)
-        
+
         self._update_space_indicator()
 
     # ------------------------------------------------------------------ playback
@@ -496,18 +497,6 @@ class FirmwareGUI:
             )
 
     def _do_inject_wav(self, index: int, wav_path: str):
-        encoding_profile = ENCODING_BEST
-        encoder = VPEEncoder(self.fw.data)
-        audio_segment = encoder.encode_wav_into_audio_segment(wav_path, encoding_profile)
-
-        self.creator_segments[index] = audio_segment
-        self._log_ts(
-            f"  Segment {index} injected OK  ({len(audio_segment)} bytes replaced)"
-        )
-        # Refresh view
-        self._populate_creator()
-
-    def _do_inject_wav(self, index: int, wav_path: str):
         try:
             encoding_profile = self._selected_profile()
             encoder = VPEEncoder(self.fw.data)
@@ -521,6 +510,8 @@ class FirmwareGUI:
             self.root.after(0, self._populate_creator)
         except Exception as e:
             self._log_ts(f"  Inject WAV error: {e}")
+        # Refresh view
+        self._populate_creator()
 
     def _do_inject_raw(self, index: int, raw_path: str):
         try:
@@ -528,9 +519,7 @@ class FirmwareGUI:
                 data = f.read()
 
             self.creator_segments[index] = AudioSegment(data)
-            self._log_ts(
-                f"  Segment {index} injected OK  ({len(data)} bytes replaced)"
-            )
+            self._log_ts(f"  Segment {index} injected OK  ({len(data)} bytes replaced)")
             self.root.after(0, self._populate_creator)
         except Exception as e:
             self._log_ts(f"  Inject RAW error: {e}")
