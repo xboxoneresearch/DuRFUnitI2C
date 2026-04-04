@@ -24,13 +24,11 @@ from vpe import (
     ENCODING_BEST,
     ENCODING_PRESETS,
     VPE_AUDIO_DATA_LIMIT,
-    VPE_DATA_BOUNDARY_ADDR,
     AudioSegment,
     DPCMSegmentHeader,
     EncodingProfile,
     FirmwareDecoderContext,
     ISD9160Firmware,
-    LibrarySegEntry,
     VPEEncoder,
     VpeSegmentHeader,
 )
@@ -40,6 +38,78 @@ def size_to_unit(size: int) -> tuple[int | float, str]:
     if size < 1024:
         return size, "bytes"
     return size / 1024, "kBytes"
+
+
+class SegmentRowWidgets:
+    """Container for playback segment row widgets."""
+    def __init__(self, parent: tk.Widget, row: int):
+        self.idx_label = ttk.Label(parent)
+        self.codec_label = ttk.Label(parent)
+        self.offset_label = ttk.Label(parent)
+        self.size_label = ttk.Label(parent)
+        self.details_label = ttk.Label(parent)
+        self.play_btn = ttk.Button(parent, text="Play")
+        self.extract_wav_btn = ttk.Button(parent, text="Extract WAV")
+        self.extract_raw_btn = ttk.Button(parent, text="Extract RAW")
+        self.row = row
+        self._widgets = [
+            self.idx_label,
+            self.codec_label,
+            self.offset_label,
+            self.size_label,
+            self.details_label,
+            self.play_btn,
+            self.extract_wav_btn,
+            self.extract_raw_btn,
+        ]
+
+    def grid(self, row: int | None = None):
+        """Grid all widgets at the specified row."""
+        if row is not None:
+            self.row = row
+        for col, widget in enumerate(self._widgets):
+            widget.grid(row=self.row, column=col, padx=4, sticky=tk.W)
+
+    def grid_remove(self):
+        """Hide all widgets."""
+        for widget in self._widgets:
+            widget.grid_remove()
+
+
+class CreatorRowWidgets:
+    """Container for creator segment row widgets."""
+    def __init__(self, parent: tk.Widget, row: int):
+        self.idx_label = ttk.Label(parent)
+        self.codec_label = ttk.Label(parent)
+        self.size_label = ttk.Label(parent)
+        self.details_label = ttk.Label(parent)
+        self.stub_btn = ttk.Button(parent, text="Make Stub")
+        self.play_btn = ttk.Button(parent, text="Play")
+        self.inject_wav_btn = ttk.Button(parent, text="Inject WAV")
+        self.inject_raw_btn = ttk.Button(parent, text="Inject RAW")
+        self.row = row
+        self._widgets = [
+            self.idx_label,
+            self.codec_label,
+            self.size_label,
+            self.details_label,
+            self.stub_btn,
+            self.play_btn,
+            self.inject_wav_btn,
+            self.inject_raw_btn,
+        ]
+
+    def grid(self, row: int | None = None):
+        """Grid all widgets at the specified row."""
+        if row is not None:
+            self.row = row
+        for col, widget in enumerate(self._widgets):
+            widget.grid(row=self.row, column=col, padx=4, sticky=tk.W)
+
+    def grid_remove(self):
+        """Hide all widgets."""
+        for widget in self._widgets:
+            widget.grid_remove()
 
 
 class FirmwareGUI:
@@ -90,8 +160,17 @@ class FirmwareGUI:
         canvas = tk.Canvas(frame, borderwidth=0, highlightthickness=0)
         self.seg_inner = ttk.Frame(canvas)
 
+        headers = ("Seg", "Codec", "Offset", "Size", "Details", "", "", "")
+        # Header row
+        self._segment_header_widgets = []
+        for col, hdr in enumerate(headers):
+            lbl = ttk.Label(self.seg_inner, text=hdr, font=("", 9, "bold"))
+            lbl.grid(row=0, column=col, padx=4, pady=(2, 4), sticky=tk.W)
+            self._segment_header_widgets.append(lbl)
+
         canvas.create_window((0, 0), window=self.seg_inner, anchor=tk.NW)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._segment_rows = []  # Cache for segment row widgets
 
     def _build_vpe_creator(self):
         frame = ttk.LabelFrame(self.tab_creator, text="Audio Segments")
@@ -100,8 +179,18 @@ class FirmwareGUI:
         canvas = tk.Canvas(frame, borderwidth=0, highlightthickness=0)
 
         self.creator_inner = ttk.Frame(canvas)
+        headers = ("Seg", "Codec", "Size", "Details", "", "", "", "")
+        # Header row
+        self._creator_header_widgets = []
+        for col, hdr in enumerate(headers):
+            lbl = ttk.Label(self.creator_inner, text=hdr, font=("", 9, "bold"))
+            lbl.grid(row=0, column=col, padx=4, pady=(2, 4), sticky=tk.W)
+            self._creator_header_widgets.append(lbl)
+
         canvas.create_window((0, 0), window=self.creator_inner, anchor=tk.NW)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self._creator_rows = []  # Cache for creator row widgets
 
         controls = ttk.Frame(self.tab_creator)
         controls.pack(fill=tk.X, padx=6, pady=(0, 6))
@@ -226,23 +315,20 @@ class FirmwareGUI:
             self.remaining_label.configure(text="~0.0s left")
 
     def _populate_segments(self):
-        # Clear old rows
-        for child in self.seg_inner.winfo_children():
-            child.destroy()
-
-        # Header row
-        headers = ("Seg", "Codec", "Offset", "Size", "Details", "", "", "")
-        for col, hdr in enumerate(headers):
-            lbl = ttk.Label(self.seg_inner, text=hdr, font=("", 9, "bold"))
-            lbl.grid(row=0, column=col, padx=4, pady=(2, 4), sticky=tk.W)
+        seg_count = len(self.fw.seg_entries)
+        # Grow or shrink row cache
+        while len(self._segment_rows) < seg_count:
+            row_widgets = SegmentRowWidgets(self.seg_inner, len(self._segment_rows) + 1)
+            row_widgets.grid()
+            self._segment_rows.append(row_widgets)
+        while len(self._segment_rows) > seg_count:
+            row = self._segment_rows.pop()
+            row.grid_remove()
 
         for idx, entry in enumerate(self.fw.seg_entries):
             seg = self.fw.get_segment(idx)
-            row_idx = idx + 1
+            row_widgets = self._segment_rows[idx]
             codec = seg.codec
-
-            # Compute extra details for VPE segments
-            details = ""
             hdr = seg.get_header()
             if isinstance(hdr, VpeSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
@@ -250,61 +336,32 @@ class FirmwareGUI:
                 details = f"{hdr.samplerate // 1000}kHz"
             else:
                 details = "Unpopulated"
-
             size, unit = size_to_unit(len(seg))
-
-            ttk.Label(self.seg_inner, text=str(idx)).grid(
-                row=row_idx, column=0, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.seg_inner, text=codec.name).grid(
-                row=row_idx, column=1, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.seg_inner, text=f"0x{entry.start:05X}").grid(
-                row=row_idx, column=2, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.seg_inner, text=f"{size:.2f} {unit}").grid(
-                row=row_idx, column=3, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.seg_inner, text=details).grid(
-                row=row_idx, column=4, padx=4, sticky=tk.W
-            )
-
-            play_btn = ttk.Button(
-                self.seg_inner, text="Play", command=lambda s=seg: self._play_seg(s)
-            )
-            play_btn.grid(row=row_idx, column=5, padx=4)
-
-            ext_btn = ttk.Button(
-                self.seg_inner,
-                text="Extract WAV",
-                command=lambda s=seg, i=idx: self._extract_seg_wav(i, s),
-            )
-            ext_btn.grid(row=row_idx, column=6, padx=4)
-
-            inj_btn = ttk.Button(
-                self.seg_inner,
-                text="Extract RAW",
-                command=lambda s=seg, i=idx: self._extract_seg_raw(i, s),
-            )
-            inj_btn.grid(row=row_idx, column=7, padx=4)
+            # Update labels and buttons with clear named attributes
+            row_widgets.idx_label["text"] = str(idx)
+            row_widgets.codec_label["text"] = codec.name
+            row_widgets.offset_label["text"] = f"0x{entry.start:05X}"
+            row_widgets.size_label["text"] = f"{size:.2f} {unit}"
+            row_widgets.details_label["text"] = details
+            row_widgets.play_btn["command"] = lambda s=seg: self._play_seg(s)
+            row_widgets.extract_wav_btn["command"] = lambda s=seg, i=idx: self._extract_seg_wav(i, s)
+            row_widgets.extract_raw_btn["command"] = lambda s=seg, i=idx: self._extract_seg_raw(i, s)
+            row_widgets.grid(row=idx + 1)
 
     def _populate_creator(self):
-        # Clear old rows
-        for child in self.creator_inner.winfo_children():
-            child.destroy()
-
-        # Header row
-        headers = ("Seg", "Codec", "Size", "Details", "", "", "", "")
-        for col, hdr in enumerate(headers):
-            lbl = ttk.Label(self.creator_inner, text=hdr, font=("", 9, "bold"))
-            lbl.grid(row=0, column=col, padx=4, pady=(2, 4), sticky=tk.W)
+        seg_count = len(self.creator_segments)
+        # Grow or shrink row cache
+        while len(self._creator_rows) < seg_count:
+            row_widgets = CreatorRowWidgets(self.creator_inner, len(self._creator_rows) + 1)
+            row_widgets.grid()
+            self._creator_rows.append(row_widgets)
+        while len(self._creator_rows) > seg_count:
+            row = self._creator_rows.pop()
+            row.grid_remove()
 
         for idx, seg in enumerate(self.creator_segments):
-            row_idx = idx + 1
+            row_widgets = self._creator_rows[idx]
             codec = seg.codec
-
-            # Compute extra details for VPE segments
-            details = ""
             hdr = seg.get_header()
             if isinstance(hdr, VpeSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
@@ -312,51 +369,18 @@ class FirmwareGUI:
                 details = f"{hdr.samplerate // 1000}kHz"
             else:
                 details = "Unpopulated"
-
             size, unit = size_to_unit(len(seg))
-
-            ttk.Label(self.creator_inner, text=str(idx)).grid(
-                row=row_idx, column=0, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.creator_inner, text=codec.name).grid(
-                row=row_idx, column=1, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.creator_inner, text=f"{size:.2f} {unit}").grid(
-                row=row_idx, column=2, padx=4, sticky=tk.W
-            )
-            ttk.Label(self.creator_inner, text=details).grid(
-                row=row_idx, column=3, padx=4, sticky=tk.W
-            )
-
-            stub_btn = ttk.Button(
-                self.creator_inner,
-                text="Make Stub",
-                command=lambda i=idx: self._make_stub_seg(i),
-            )
-            stub_btn.grid(row=row_idx, column=4, padx=4)
-
-            play_btn = ttk.Button(
-                self.creator_inner, text="Play", command=lambda s=seg: self._play_seg(s)
-            )
-            play_btn.grid(row=row_idx, column=5, padx=4)
-            if len(seg.data) == 0:
-                # Disable play button if there is no data
-                play_btn.configure(state=tk.DISABLED)
-
-            inj_btn = ttk.Button(
-                self.creator_inner,
-                text="Inject WAV",
-                command=lambda i=idx: self._inject_seg(i),
-            )
-            inj_btn.grid(row=row_idx, column=6, padx=4)
-
-            inj_raw_btn = ttk.Button(
-                self.creator_inner,
-                text="Inject RAW",
-                command=lambda i=idx: self._inject_seg_raw(i),
-            )
-            inj_raw_btn.grid(row=row_idx, column=7, padx=4)
-
+            # Update labels and buttons with clear named attributes
+            row_widgets.idx_label["text"] = str(idx)
+            row_widgets.codec_label["text"] = codec.name
+            row_widgets.size_label["text"] = f"{size:.2f} {unit}"
+            row_widgets.details_label["text"] = details
+            row_widgets.stub_btn["command"] = lambda i=idx: self._make_stub_seg(i)
+            row_widgets.play_btn["command"] = lambda s=seg: self._play_seg(s)
+            row_widgets.play_btn["state"] = tk.DISABLED if len(seg.data) == 0 else tk.NORMAL
+            row_widgets.inject_wav_btn["command"] = lambda i=idx: self._inject_seg(i)
+            row_widgets.inject_raw_btn["command"] = lambda i=idx: self._inject_seg_raw(i)
+            row_widgets.grid(row=idx + 1)
         self._update_space_indicator()
 
     # ------------------------------------------------------------------ playback
@@ -495,6 +519,7 @@ class FirmwareGUI:
             self._log(
                 f"Segment {index} converted to VPE stub ({hdr.samplerate} Hz, {hdr.num_frames} frame, {len(self.creator_segments[index])} bytes)"
             )
+        self.root.after(0, self._populate_creator)
 
     def _do_inject_wav(self, index: int, wav_path: str):
         try:
@@ -510,8 +535,6 @@ class FirmwareGUI:
             self.root.after(0, self._populate_creator)
         except Exception as e:
             self._log_ts(f"  Inject WAV error: {e}")
-        # Refresh view
-        self._populate_creator()
 
     def _do_inject_raw(self, index: int, raw_path: str):
         try:
