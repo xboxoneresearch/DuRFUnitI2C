@@ -10,4 +10,5 @@ dependencies = [
     "sounddevice>=0.5.5",
     "darkdetect>=0.8.0",
     "sv-ttk>=2.6.1",
+    "fastcrc>=0.3.5",
 ]

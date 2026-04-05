@@ -9,7 +9,9 @@ Supports:
 Usage:
     python vpe_extract.py <firmware.bin> [output_dir]
 """
+
 from __future__ import annotations
+
 import argparse
 import copy
 import math
@@ -44,7 +46,10 @@ VPE_HEADER_ADDR = 0x8000
 VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
 VPE_AUDIO_DATA_LIMIT = 0x23000
 VPE_MAGIC = 0x1155AAFF
+VPE_AUDIOLIB_MAGIC = b"EPV"
+
 DATA_SECTION_END = 0x233FF
+MAX_VERSION_LEN = 85
 
 # Key table addresses within firmware (mapped from Ghidra analysis)
 ADDR_QUANTIZER_STEPS = 0x9354  # 8 bytes: step sizes for categories 0-7
@@ -76,6 +81,7 @@ class Codec(Enum):
     VPE = 1
     DPCM = 2
 
+
 @dataclass
 class LibrarySegEntry:
     start: int
@@ -87,11 +93,13 @@ class LibrarySegEntry:
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
-        return struct.pack(
+        out = struct.pack(
             LibrarySegEntry.struct_format(),
             self.start,
             self.end,
         )
+        assert len(out) == len(self)
+        return out
 
     @staticmethod
     def struct_format() -> str:
@@ -99,6 +107,173 @@ class LibrarySegEntry:
 
     def __len__(self) -> int:
         return 8
+
+@dataclass
+class VpeHeader:
+    # 0x1155aaff
+    magic: int
+    unknown: int
+    library_offset: int
+    vpe_end_offset: int
+    funcptr_init: int
+    funcptr_setup: int
+    funcptr_decode: int
+
+    @classmethod
+    def from_bytes(cls, buf: bytes) -> "VpeHeader":
+        deserialized = struct.unpack_from(VpeHeader.struct_format(), buf, 0)
+        return cls(*deserialized)
+
+    def to_bytes(self) -> bytes:
+        out = struct.pack(
+            VpeHeader.struct_format(),
+            self.magic,
+            self.unknown,
+            self.library_offset,
+            self.vpe_end_offset,
+            self.funcptr_init,
+            self.funcptr_setup,
+            self.funcptr_decode,
+        )
+        assert len(out) == len(self)
+        return out
+
+    @staticmethod
+    def struct_format() -> str:
+        return "<" + ("I" * 7)
+
+    def __len__(self) -> int:
+        return 28
+
+    def __str__(self) -> str:
+        return (
+            "VPE Header\n"
+            f"Magic: {self.magic:#04x}\n"
+            f"Unknown: {self.unknown:#04x}\n"
+            f"Library offset: {self.library_offset:#04x}\n"
+            f"VPE end offset: {self.vpe_end_offset:#04x}\n"
+            f"funcptr init: {self.funcptr_init:#04x}\n"
+            f"funcptr setup: {self.funcptr_setup:#04x}\n"
+            f"funcptr decode: {self.funcptr_decode:#04x}\n"
+        )
+
+
+@dataclass
+class AudioLibraryHeader:
+    magic: int
+    unknown1: int
+    unknown2: int
+    audio_start_offset: int
+    segment_count: int
+
+    # Metadata of sorts?
+    unknown3: int
+    # End offset, incl. 2 bytes CRC16 checksum
+    vpe_end_offset: int
+    unknown4: int
+    unknown5: int
+    unknown6: int
+    unknown7: int
+    audio_end_offset: int
+    # Or rather data-to-sha256-start-offset
+    vpe_start_offset: int
+    unknown8: int
+
+    # config data?
+    fw_version: int
+    meta_unk1: int
+    meta_unk2: int
+    meta_unk3: int
+    meta_unk4: int
+    meta_unk5: int
+    meta_unk6: int
+    meta_unk7: int
+    meta_unk8: int
+
+    @classmethod
+    def from_bytes(cls, buf: bytes) -> "AudioLibraryHeader":
+        deserialized = struct.unpack_from(AudioLibraryHeader.struct_format(), buf, 0)
+        return cls(*deserialized)
+
+    def to_bytes(self) -> bytes:
+        out = struct.pack(
+            AudioLibraryHeader.struct_format(),
+            self.magic,
+            self.unknown1,
+            self.unknown2,
+            self.audio_start_offset,
+            self.segment_count,
+            self.unknown3,
+            self.vpe_end_offset,
+            self.unknown4,
+            self.unknown5,
+            self.unknown6,
+            self.unknown7,
+            self.audio_end_offset,
+            self.vpe_start_offset,
+            self.unknown8,
+            self.fw_version,
+            # Meta?
+            self.meta_unk1,
+            self.meta_unk2,
+            self.meta_unk3,
+            self.meta_unk4,
+            self.meta_unk5,
+            self.meta_unk6,
+            self.meta_unk7,
+            self.meta_unk8,
+        )
+        assert len(out) == len(self)
+        return out
+
+    @staticmethod
+    def struct_format() -> str:
+        return (
+            "<"
+            +
+            # Header values
+            "IIIII"
+            +
+            # metadata
+            "IIIIHHIII"
+            +
+            # config
+            "IIIIIIIII"
+        )
+
+    def __len__(self) -> int:
+        return 28
+
+    def __str__(self) -> str:
+        return (
+            "Audio Library Header\n"
+            f"Magic: {self.magic:#04x} ({struct.pack('<I', self.magic)[:3].decode('utf8')})\n"
+            f"Unknown: {self.unknown1:#04x}\n"
+            f"Unknown2: {self.unknown2:#04x}\n"
+            f"Audio offset: {self.audio_start_offset:#04x}\n"
+            f"Segment count: {self.segment_count}\n"
+            f"Unknown3: {self.unknown3:#04x}\n"
+            f"VPE end offset: {self.vpe_end_offset:#04x}\n"
+            f"Unknown4: {self.unknown4:#04x}\n"
+            f"Unknown5: {self.unknown5:#04x}\n"
+            f"Unknown6: {self.unknown6:#04x}\n"
+            f"Unknown7: {self.unknown7:#04x}\n"
+            f"Audio end offset (version-str ptr): {self.audio_end_offset:#04x}\n"
+            f"VPE start offset: {self.vpe_start_offset:#04x}\n"
+            f"Unknown8: {self.unknown8:#04x}\n"
+            f"FW Version: {self.fw_version:#04x}\n"
+
+            # Meta?
+            f"Meta Unknown1: {self.meta_unk1:#04x} ({self.meta_unk1})\n"
+            f"Meta Unknown2: {self.meta_unk2:#04x} ({self.meta_unk2})\n"
+            f"Meta Unknown3: {self.meta_unk3:#04x} ({self.meta_unk3})\n"
+            f"Meta Unknown4: {self.meta_unk4:#04x} ({self.meta_unk4})\n"
+            f"Meta Unknown5: {self.meta_unk5:#04x} ({self.meta_unk5})\n"
+            f"Meta Unknown6: {self.meta_unk6:#04x} ({self.meta_unk6})\n"
+            f"Meta Unknown7: {self.meta_unk7:#04x} ({self.meta_unk7})\n"
+            f"Meta Unknown8: {self.meta_unk8:#04x} ({self.meta_unk8})\n"
+        )
+
 
 @dataclass
 class AudioSegment:
@@ -134,7 +309,7 @@ class AudioSegment:
             profile.num_subbands,
             profile.samples_per_frame,
         )
-        return cls(header.to_bytes() + (b"\xFF" * profile.bytes_per_frame))
+        return cls(header.to_bytes() + (b"\xff" * profile.bytes_per_frame))
 
     @property
     def codec_type(self) -> int:
@@ -158,6 +333,7 @@ class AudioSegment:
     @property
     def is_dpcm(self) -> bool:
         return self.codec == Codec.DPCM
+
 
 @dataclass
 class DPCMContext:
@@ -225,10 +401,9 @@ class DPCMSegmentHeader:
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
-        return struct.pack(
-            DPCMSegmentHeader.struct_format(),
-            self.first_byte
-        )
+        out = struct.pack(DPCMSegmentHeader.struct_format(), self.first_byte)
+        assert len(out) == len(self)
+        return out
 
     @staticmethod
     def struct_format() -> str:
@@ -236,6 +411,7 @@ class DPCMSegmentHeader:
 
     def __len__(self) -> int:
         return 1
+
 
 @dataclass
 class VpeSegmentHeader:
@@ -276,7 +452,7 @@ class VpeSegmentHeader:
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
-        return struct.pack(
+        out = struct.pack(
             VpeSegmentHeader.struct_format(),
             self.codec_byte,
             self.unknown,
@@ -285,8 +461,10 @@ class VpeSegmentHeader:
             self.codec_subtype,
             self.bits_per_frame,
             self.num_subbands,
-            self.samples_per_frame
+            self.samples_per_frame,
         )
+        assert len(out) == len(self)
+        return out
 
     @staticmethod
     def struct_format() -> str:
@@ -294,6 +472,7 @@ class VpeSegmentHeader:
 
     def __len__(self) -> int:
         return 16
+
 
 @dataclass
 class EncodingProfile:
@@ -319,11 +498,18 @@ class EncodingProfile:
         return self.bytes_per_frame * self.samplerate / self.samples_per_frame
 
     def estimate_duration_secs(self, available_bytes: int) -> float:
-        payload_bytes = max(0, available_bytes - len(VpeSegmentHeader(0, 0, 0, 0, 0, 0, 0, 0)))
-        if self.bytes_per_frame <= 0 or self.samples_per_frame <= 0 or self.samplerate <= 0:
+        payload_bytes = max(
+            0, available_bytes - len(VpeSegmentHeader(0, 0, 0, 0, 0, 0, 0, 0))
+        )
+        if (
+            self.bytes_per_frame <= 0
+            or self.samples_per_frame <= 0
+            or self.samplerate <= 0
+        ):
             return 0.0
         frame_count = payload_bytes // self.bytes_per_frame
         return frame_count * self.samples_per_frame / self.samplerate
+
 
 ENCODING_32KHZ = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
 ENCODING_16KHZ = EncodingProfile(0xBD, 14000, 16000, 14, 320, 320, 1.0)
@@ -332,6 +518,15 @@ ENCODING_PRESETS = {
     "16 kHz / 16 kbps VPE": ENCODING_16KHZ,
 }
 ENCODING_BEST = ENCODING_32KHZ
+
+
+# ============================================================================
+# Alignment helper
+# ============================================================================
+
+def ALIGN(offset: int) -> int:
+    ALIGNMENT = 4
+    return ALIGNMENT * ((offset + ALIGNMENT - 1) // ALIGNMENT)
 
 # ============================================================================
 # Bitstream Reader (matches vpe_read_bit behavior)
@@ -1607,7 +1802,9 @@ class VPEEncoder:
 
         offsets = []
         for fi in sample_indices:
-            fr = compressed[fi * header.bytes_per_frame : (fi + 1) * header.bytes_per_frame]
+            fr = compressed[
+                fi * header.bytes_per_frame : (fi + 1) * header.bytes_per_frame
+            ]
             try:
                 tmpl = self._decode_frame_template(fr, bits_per_frame, num_subbands, N)
             except Exception:
@@ -2005,7 +2202,9 @@ class VPEEncoder:
         self._encode_spectral(bw, spectral_560, actual, num_subbands)
         return bw.get_bytes()
 
-    def encode_vpe_segment_frames_from_wav(self, wav_path: str, profile: EncodingProfile = ENCODING_BEST) -> tuple[bytes, int]:
+    def encode_vpe_segment_frames_from_wav(
+        self, wav_path: str, profile: EncodingProfile = ENCODING_BEST
+    ) -> tuple[bytes, int]:
         """Encode a WAV file into VPE compressed frames for in-place segment
         replacement.
 
@@ -2091,7 +2290,9 @@ class VPEEncoder:
         return bytes(out), num_frames
 
     @staticmethod
-    def create_vpe_segment_header(profile: EncodingProfile, num_frames: int) -> VpeSegmentHeader:
+    def create_vpe_segment_header(
+        profile: EncodingProfile, num_frames: int
+    ) -> VpeSegmentHeader:
         return VpeSegmentHeader(
             profile.first_byte,
             0xFF,
@@ -2100,13 +2301,18 @@ class VPEEncoder:
             profile.subtype,
             profile.bits_per_frame,
             profile.num_subbands,
-            profile.samples_per_frame
+            profile.samples_per_frame,
         )
 
-    def encode_wav_into_audio_segment(self, wav_path: str, profile: EncodingProfile) -> AudioSegment:
-        new_frames, num_frames = self.encode_vpe_segment_frames_from_wav(wav_path, profile)
+    def encode_wav_into_audio_segment(
+        self, wav_path: str, profile: EncodingProfile
+    ) -> AudioSegment:
+        new_frames, num_frames = self.encode_vpe_segment_frames_from_wav(
+            wav_path, profile
+        )
         seg_header = self.create_vpe_segment_header(profile, num_frames)
-        return AudioSegment(seg_header.to_bytes()+new_frames)
+        return AudioSegment(seg_header.to_bytes() + new_frames)
+
 
 # ============================================================================
 # DPCM Decoder
@@ -2595,9 +2801,7 @@ class FirmwareDecoderContext:
         self.vpe_decoder = VPEDecoder(fw_data, debug_enabled=False)
         self.dpcm_decoder = DPCMDecoder(fw_data)
 
-    def decode_segment(
-        self, segment: AudioSegment
-    ) -> tuple[list[int], int]:
+    def decode_segment(self, segment: AudioSegment) -> tuple[list[int], int]:
         if segment.is_vpe:
             samples, sample_rate = self.vpe_decoder.decode_segment(segment)
         elif segment.is_dpcm:
@@ -2662,25 +2866,26 @@ class ISD9160Firmware:
 
         magic = struct.unpack_from("<I", self.data, VPE_HEADER_ADDR)[0]
         if magic != VPE_MAGIC:
-            print(
-                f"Warning: VPE magic mismatch (got 0x{magic:08X}, expected 0x{VPE_MAGIC:08X})"
+            raise Exception(
+                f"VPE magic mismatch (got 0x{magic:08X}, expected 0x{VPE_MAGIC:08X})"
             )
 
         # Library table pointer at header + 8
         lib_table_ptr = struct.unpack_from("<I", self.data, VPE_HEADER_ADDR + 8)[0]
-        print(f"VPE Library Header at: 0x{lib_table_ptr:X}")
+        # print(f"VPE Library Header at: 0x{lib_table_ptr:X}")
 
         # Read VPE library header
         vpe_magic = self.data[lib_table_ptr : lib_table_ptr + 4]
-        print(f"VPE Magic: {vpe_magic!r}")
+        # print(f"VPE Magic: {vpe_magic!r}")
 
-
-        self.seg_table_ptr = struct.unpack_from("<I", self.data, lib_table_ptr + 0x0C)[0]
+        self.seg_table_ptr = struct.unpack_from("<I", self.data, lib_table_ptr + 0x0C)[
+            0
+        ]
         self.seg_count = (
             struct.unpack_from("<I", self.data, lib_table_ptr + 0x10)[0] & 0xFFFF
         )
-        print(f"Segment Table at: 0x{self.seg_table_ptr:X}")
-        print(f"Segment Count: {self.seg_count}")
+        # print(f"Segment Table at: 0x{self.seg_table_ptr:X}")
+        # print(f"Segment Count: {self.seg_count}")
 
         # Read version string pointer
         ver_str_ptr = struct.unpack_from("<I", self.data, lib_table_ptr + 0x28)[0]
@@ -2690,22 +2895,26 @@ class ISD9160Firmware:
                 if 0 in self.data[ver_str_ptr : ver_str_ptr + 128]
                 else ver_str_ptr + 70
             )
-            self.version_str = self.data[ver_str_ptr:ver_end].decode("ascii", errors="replace")
-            print(f"Version: {self.version_str}")
+            self.version_str = self.data[ver_str_ptr:ver_end].decode(
+                "ascii", errors="replace"
+            )
+            # print(f"Version: {self.version_str}")
 
         # Parse segment table
         for i in range(self.seg_count):
             entry_addr = self.seg_table_ptr + i * 8
             entry = LibrarySegEntry.from_bytes(self.data[entry_addr:])
             # Firmware segment table end offsets appear to be inclusive: next.start == prev.end + 1.
-            if entry.start >= len(self.data) or entry.end >= len(self.data) or entry.start > entry.end:
+            if (
+                entry.start >= len(self.data)
+                or entry.end >= len(self.data)
+                or entry.start > entry.end
+            ):
                 print(f"  Segment {i}: INVALID (0x{entry.start:X} - 0x{entry.end:X})")
                 continue
 
             self.seg_entries.append(entry)
-            print(
-                f"  Segment {i}: 0x{entry.start:05X}-0x{entry.end:05X}"
-            )
+            # print(f"  Segment {i}: 0x{entry.start:05X}-0x{entry.end:05X}")
         assert len(self.seg_entries) == self.seg_count
 
     def extract_all(self, output_dir):
@@ -2757,7 +2966,7 @@ class ISD9160Firmware:
     def get_segment(self, index: int) -> AudioSegment:
         """Return segment dict for a given segment index, or None if missing."""
         entry = self.get_segment_library_entry(index)
-        return AudioSegment(self.data[entry.start:entry.end + 1])
+        return AudioSegment(self.data[entry.start : entry.end + 1])
 
     def get_all_segments(self) -> list[AudioSegment]:
         return [self.get_segment(i) for i in range(self.seg_count)]
@@ -2765,7 +2974,7 @@ class ISD9160Firmware:
     def patch_with_new_segments(self, new_segments: list[AudioSegment]) -> bytes:
         if not self.audiodata_area_known:
             raise Exception("Audiodata area not known?!?")
-        
+
         fw_buf = bytearray(self.data)
         if not fw_buf:
             raise Exception("No firmware loaded.. how did you get here?")
@@ -2776,12 +2985,12 @@ class ISD9160Firmware:
 
         if data_offset >= audio_limit:
             raise Exception(
-                    f"Invalid audio data region: start=0x{data_offset:05X}, "
-                    f"limit=0x{audio_limit:05X}"
+                f"Invalid audio data region: start=0x{data_offset:05X}, "
+                f"limit=0x{audio_limit:05X}"
             )
 
         # Zero out existing audio data
-        fw_buf[data_offset:audio_limit] = b"\xFF" * (audio_limit - data_offset)
+        fw_buf[data_offset:audio_limit] = b"\xff" * (audio_limit - data_offset)
         current_pos = data_offset
 
         for idx, segment in enumerate(new_segments):
@@ -2795,15 +3004,15 @@ class ISD9160Firmware:
 
             if next_pos > audio_limit:
                 raise Exception(
-                        f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
-                        f"while writing segment {idx}."
+                    f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
+                    f"while writing segment {idx}."
                 )
 
             lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
 
             # Overwrite entry in fw buffer
             lib_entry_offset = lib_entry_ptr + (idx * 8)
-            fw_buf[lib_entry_offset:lib_entry_offset + 8] = lib_entry.to_bytes()
+            fw_buf[lib_entry_offset : lib_entry_offset + 8] = lib_entry.to_bytes()
 
             # Overwrite audio data in fw buffer
             fw_buf[current_pos:next_pos] = segment.data
@@ -2916,14 +3125,16 @@ def main():
             encoder = VPEEncoder(fw.data)
             for idx, wav_path in inject_seg_wav:
                 print(f"\nEncoding WAV -> VPE for segment {idx}: {wav_path}")
-                audio_segment = encoder.encode_wav_into_audio_segment(wav_path, ENCODING_BEST)
+                audio_segment = encoder.encode_wav_into_audio_segment(
+                    wav_path, ENCODING_BEST
+                )
                 new_segments[idx] = audio_segment
         if inject_seg_raw:
             for idx, raw_path in inject_seg_raw:
                 print(f"\nInjecting raw segment for index {idx}: {raw_path}")
                 with open(raw_path, "rb") as f:
                     audio_segment = AudioSegment(f.read())
-                new_segments[idx] =  audio_segment
+                new_segments[idx] = audio_segment
 
         new_fw_data = fw.patch_with_new_segments(new_segments)
         with open(args.patch_out, "wb") as f:
