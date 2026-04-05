@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import abc
 import argparse
 import copy
 import math
@@ -81,20 +82,39 @@ class Codec(Enum):
     VPE = 1
     DPCM = 2
 
+class Serializable(abc.ABC):
+    @classmethod
+    @abc.abstractmethod
+    def from_bytes(cls, buf: bytes):
+        pass
+
+    @abc.abstractmethod
+    def to_bytes(self) -> bytes:
+        pass
+
+    @staticmethod
+    @abc.abstractmethod
+    def _struct_fmt() -> str:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def __len__(self) -> int:
+        pass
 
 @dataclass
-class LibrarySegEntry:
+class LibrarySegEntry(Serializable):
     start: int
     end: int
 
     @classmethod
     def from_bytes(cls, buf: bytes) -> "LibrarySegEntry":
-        deserialized = struct.unpack_from(LibrarySegEntry.struct_format(), buf, 0)
+        deserialized = struct.unpack_from(LibrarySegEntry._struct_fmt(), buf, 0)
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
         out = struct.pack(
-            LibrarySegEntry.struct_format(),
+            LibrarySegEntry._struct_fmt(),
             self.start,
             self.end,
         )
@@ -102,14 +122,14 @@ class LibrarySegEntry:
         return out
 
     @staticmethod
-    def struct_format() -> str:
+    def _struct_fmt() -> str:
         return "<II"
 
     def __len__(self) -> int:
         return 8
 
 @dataclass
-class VpeHeader:
+class VpeHeader(Serializable):
     # 0x1155aaff
     magic: int
     unknown: int
@@ -121,12 +141,12 @@ class VpeHeader:
 
     @classmethod
     def from_bytes(cls, buf: bytes) -> "VpeHeader":
-        deserialized = struct.unpack_from(VpeHeader.struct_format(), buf, 0)
+        deserialized = struct.unpack_from(VpeHeader._struct_fmt(), buf, 0)
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
         out = struct.pack(
-            VpeHeader.struct_format(),
+            VpeHeader._struct_fmt(),
             self.magic,
             self.unknown,
             self.library_offset,
@@ -139,7 +159,7 @@ class VpeHeader:
         return out
 
     @staticmethod
-    def struct_format() -> str:
+    def _struct_fmt() -> str:
         return "<" + ("I" * 7)
 
     def __len__(self) -> int:
@@ -157,9 +177,10 @@ class VpeHeader:
             f"funcptr decode: {self.funcptr_decode:#04x}\n"
         )
 
+a = VpeHeader(0, 0, 0, 0, 0, 0, 0)
 
 @dataclass
-class AudioLibraryHeader:
+class AudioLibraryHeader(Serializable):
     magic: int
     unknown1: int
     unknown2: int
@@ -192,12 +213,12 @@ class AudioLibraryHeader:
 
     @classmethod
     def from_bytes(cls, buf: bytes) -> "AudioLibraryHeader":
-        deserialized = struct.unpack_from(AudioLibraryHeader.struct_format(), buf, 0)
+        deserialized = struct.unpack_from(AudioLibraryHeader._struct_fmt(), buf, 0)
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
         out = struct.pack(
-            AudioLibraryHeader.struct_format(),
+            AudioLibraryHeader._struct_fmt(),
             self.magic,
             self.unknown1,
             self.unknown2,
@@ -227,7 +248,7 @@ class AudioLibraryHeader:
         return out
 
     @staticmethod
-    def struct_format() -> str:
+    def _struct_fmt() -> str:
         return (
             "<"
             +
@@ -364,7 +385,7 @@ class VpeFrameParams:
 
 
 @dataclass
-class DPCMSegmentHeader:
+class DPCMSegmentHeader(Serializable):
     # Codec type → sample rate (from codec_dispatcher_init switch table)
     SAMPLE_RATES = {
         0: 4000,
@@ -397,16 +418,16 @@ class DPCMSegmentHeader:
 
     @classmethod
     def from_bytes(cls, buf: bytes) -> "DPCMSegmentHeader":
-        deserialized = struct.unpack_from(DPCMSegmentHeader.struct_format(), buf, 0)
+        deserialized = struct.unpack_from(DPCMSegmentHeader._struct_fmt(), buf, 0)
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
-        out = struct.pack(DPCMSegmentHeader.struct_format(), self.first_byte)
+        out = struct.pack(DPCMSegmentHeader._struct_fmt(), self.first_byte)
         assert len(out) == len(self)
         return out
 
     @staticmethod
-    def struct_format() -> str:
+    def _struct_fmt() -> str:
         return "<B"
 
     def __len__(self) -> int:
@@ -414,7 +435,7 @@ class DPCMSegmentHeader:
 
 
 @dataclass
-class VpeSegmentHeader:
+class VpeSegmentHeader(Serializable):
     # u8
     codec_byte: int
     # u8
@@ -448,12 +469,12 @@ class VpeSegmentHeader:
 
     @classmethod
     def from_bytes(cls, buf: bytes) -> "VpeSegmentHeader":
-        deserialized = struct.unpack_from(VpeSegmentHeader.struct_format(), buf, 0)
+        deserialized = struct.unpack_from(VpeSegmentHeader._struct_fmt(), buf, 0)
         return cls(*deserialized)
 
     def to_bytes(self) -> bytes:
         out = struct.pack(
-            VpeSegmentHeader.struct_format(),
+            VpeSegmentHeader._struct_fmt(),
             self.codec_byte,
             self.unknown,
             self.num_frames,
@@ -467,7 +488,7 @@ class VpeSegmentHeader:
         return out
 
     @staticmethod
-    def struct_format() -> str:
+    def _struct_fmt() -> str:
         return "<2BhI4h"
 
     def __len__(self) -> int:
