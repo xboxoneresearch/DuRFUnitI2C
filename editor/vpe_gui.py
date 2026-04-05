@@ -265,15 +265,12 @@ class FirmwareGUI:
 
         self.fw_path = path
         self.decoder = FirmwareDecoderContext(self.fw.data)
-        self.creator_segments = [
-            AudioSegment(self.fw.get_segment(idx).data)
-            for idx in range(self.fw.seg_count)
-        ]
+        self.creator_segments = self.fw.get_all_segments()
         self.fw_label.configure(
-            text=f"{os.path.basename(path)}  ({self.fw.seg_count} segments)"
+            text=f"{os.path.basename(path)}  ({self.fw.segment_count} segments)"
         )
         self.save_btn.configure(state=tk.NORMAL)
-        self._log(f"Loaded {path}  —  {self.fw.seg_count} audio segments found")
+        self._log(f"Loaded {path}  —  {self.fw.segment_count} audio segments found")
         self._populate_segments()
         self._populate_creator()
 
