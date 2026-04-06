@@ -3014,6 +3014,7 @@ class ISD9160Firmware:
         fw_buf[data_offset:audio_limit] = b"\xff" * (audio_limit - data_offset)
         current_pos = data_offset
 
+        next_pos = 0
         for idx, segment in enumerate(new_segments):
             if segment.is_empty():
                 raise Exception(
@@ -3037,7 +3038,7 @@ class ISD9160Firmware:
 
             # Overwrite audio data in fw buffer
             fw_buf[current_pos:next_pos] = segment.data
-            current_pos = next_pos
+            current_pos = ALIGN(next_pos)
 
         struct.pack_into("<I", fw_buf, VPE_DATA_BOUNDARY_ADDR, current_pos)
         return bytes(fw_buf)
