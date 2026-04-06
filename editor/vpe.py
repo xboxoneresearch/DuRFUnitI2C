@@ -11,6 +11,7 @@ Usage:
 """
 
 from __future__ import annotations
+from pyexpat import version_info
 
 import abc
 import argparse
@@ -21,7 +22,7 @@ import struct
 import traceback
 import wave
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, verify
 from fastcrc import crc16
 
 try:
@@ -275,7 +276,7 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
         )
 
     def __len__(self) -> int:
-        return 28
+        return 88
 
     def __str__(self) -> str:
         return (
@@ -2847,11 +2848,12 @@ class FirmwareDecoderContext:
 class ISD9160Firmware:
     """Parser for ISD9160 firmware images with VPE audio library."""
 
-    def __init__(self, fw_data: bytes):
+    def __init__(self, fw_data: bytes, verify_crc: bool = True):
         self.data = fw_data
         self.seg_entries: list[LibrarySegEntry] = []
         self._vpe_header = None
         self._audiolib_header = None
+        self._verify_crc = verify_crc
         self._parse()
 
     @classmethod
@@ -2929,13 +2931,15 @@ class ISD9160Firmware:
                 f"AudioLibrary magic mismatch (got 0x{self.audiolib_header.magic:08X}, expected {VPE_AUDIOLIB_MAGIC})"
             )
 
-        if not self.is_checksum_valid():
+        if self._verify_crc and not self.is_checksum_valid():
             raise Exception("Invalid VPE checksum")
 
         # Read version string pointer
         ver_str_ptr = self.audiolib_header.version_string_offset
         ver_end_offset = self.data.index(b"\x00", ver_str_ptr)
-        self.version = self.data[ver_str_ptr:ver_end_offset]
+        self.version = self.data[ver_str_ptr:ver_end_offset].decode("utf-8")
+
+        assert ALIGN(ver_str_ptr + len(self.version) + 1 + CRC16_LEN) == self.audiolib_header.vpe_end_offset
 
         # Parse segment table
         for i in range(self.segment_count):
@@ -2947,11 +2951,11 @@ class ISD9160Firmware:
                 or entry.end >= len(self.data)
                 or entry.start > entry.end
             ):
-                print(f"  Segment {i}: INVALID (0x{entry.start:X} - 0x{entry.end:X})")
-                continue
+                raise Exception(f"  Segment {i}: INVALID ({entry.start:#X} - {entry.end:#X})")
 
             self.seg_entries.append(entry)
-            # print(f"  Segment {i}: 0x{entry.start:05X}-0x{entry.end:05X}")
+
+        assert self.seg_entries[-1].end + 1 == self.audiodata_end_offset
         assert len(self.seg_entries) == self.audiolib_header.segment_count
 
     def extract_all(self, output_dir):
@@ -2995,8 +2999,8 @@ class ISD9160Firmware:
     def get_all_segments(self) -> list[AudioSegment]:
         return [self.get_segment(i) for i in range(self.audiolib_header.segment_count)]
 
-    def patch_with_new_segments(self, new_segments: list[AudioSegment]) -> bytes:
-        fw_buf = bytearray(self.data)
+    def patch_with_new_segments(self, new_segments: list[AudioSegment], version_str: str) -> ISD9160Firmware:
+        fw_buf = bytearray(self.data).copy()
         if not fw_buf:
             raise Exception("No firmware loaded.. how did you get here?")
 
@@ -3033,15 +3037,44 @@ class ISD9160Firmware:
             lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
 
             # Overwrite entry in fw buffer
-            lib_entry_offset = lib_entry_ptr + (idx * 8)
-            fw_buf[lib_entry_offset : lib_entry_offset + 8] = lib_entry.to_bytes()
+            lib_entry_offset = lib_entry_ptr + (idx * len(lib_entry))
+            fw_buf[lib_entry_offset : lib_entry_offset + len(lib_entry)] = lib_entry.to_bytes()
 
             # Overwrite audio data in fw buffer
             fw_buf[current_pos:next_pos] = segment.data
             current_pos = ALIGN(next_pos)
 
-        struct.pack_into("<I", fw_buf, VPE_DATA_BOUNDARY_ADDR, current_pos)
-        return bytes(fw_buf)
+        # This is the non-aligned offset!
+        audiodata_end_offset = next_pos
+
+        # Write version string + null terminator
+        version_bytes = version_str.encode("utf-8") + b"\0"
+        version_len = len(version_bytes)
+        fw_buf[audiodata_end_offset:audiodata_end_offset + version_len] = version_bytes
+
+        # Align offset to fit checksum right at the end
+        vpe_end_addr = ALIGN(audiodata_end_offset + version_len + CRC16_LEN)
+
+        # Prepare the metadata headers and write them to the buffer
+        vpe_header = copy.deepcopy(self.vpe_header)
+        audiolib_header = copy.deepcopy(self.audiolib_header)
+        
+        vpe_header.vpe_end_offset = vpe_end_addr
+        audiolib_header.vpe_end_offset = vpe_end_addr
+        audiolib_header.audio_end_offset = audiodata_end_offset
+
+        print(vpe_header)
+        print(audiolib_header)
+
+        fw_buf[VPE_HEADER_ADDR:VPE_HEADER_ADDR + len(vpe_header)] = vpe_header.to_bytes()
+        fw_buf[vpe_header.library_offset: vpe_header.library_offset + len(audiolib_header)] = audiolib_header.to_bytes()
+
+        # Rehash
+        fw = ISD9160Firmware(bytes(fw_buf), verify_crc=False)
+        fw.rehash()
+        assert fw.is_checksum_valid()
+
+        return fw
 
     @staticmethod
     def _write_wav(
@@ -3160,9 +3193,9 @@ def main():
                     audio_segment = AudioSegment(f.read())
                 new_segments[idx] = audio_segment
 
-        new_fw_data = fw.patch_with_new_segments(new_segments)
+        new_fw = fw.patch_with_new_segments(new_segments, fw.version)
         with open(args.patch_out, "wb") as f:
-            f.write(new_fw_data)
+            f.write(new_fw.data)
 
         print(f"\nDone! Wrote patched firmware to {args.patch_out}")
         return
@@ -3174,10 +3207,10 @@ def main():
             print(f"Segment {args.segment} not found!")
             return
         fw.seg_entries = [seg]
-        fw._audiolib_header.segment_count = 1
+        fw.audiolib_header.segment_count = 1
 
     fw.extract_all(args.output)
-    print(f"\nDone! Extracted {fw._audiolib_header.segment_count} segment(s) to {args.output}/")
+    print(f"\nDone! Extracted {fw.audiolib_header.segment_count} segment(s) to {args.output}/")
 
 
 if __name__ == "__main__":

@@ -283,7 +283,7 @@ class FirmwareGUI:
         self.fw_label.configure(
             text=f"{os.path.basename(path)}  ({self.fw.segment_count} segments)"
         )
-        version = self.fw.version.decode("utf8")
+        version = self.fw.version
         self.version_label.configure(text=version)
         self.version_str_var.initialize(version)
         self.save_btn.configure(state=tk.NORMAL)
@@ -293,7 +293,10 @@ class FirmwareGUI:
 
     # ------------------------------------------------------------------ save
     def _save_new_fw(self):
-        data = self.fw.patch_with_new_segments(self.creator_segments)
+        new_fw = self.fw.patch_with_new_segments(
+            self.creator_segments, 
+            self.version_str_var.get()
+        )
 
         path = filedialog.asksaveasfilename(
             title="Save Patched Firmware",
@@ -304,7 +307,7 @@ class FirmwareGUI:
         if not path:
             return
         with open(path, "wb") as f:
-            f.write(data)
+            f.write(new_fw.data)
         self._log(f"Saved patched firmware to {path}")
 
     # ------------------------------------------------------------------ rows
