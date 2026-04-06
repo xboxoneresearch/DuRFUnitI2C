@@ -124,6 +124,7 @@ class FirmwareGUI:
         self.creator_segments: list[AudioSegment] = [
             AudioSegment.empty() for _ in range(9)
         ]
+        self.version_str_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value=next(iter(ENCODING_PRESETS)))
 
         self._build_toolbar()
@@ -139,10 +140,14 @@ class FirmwareGUI:
         bar = ttk.Frame(self.root)
         bar.pack(fill=tk.X, padx=6, pady=(6, 6))
 
-        ttk.Button(bar, text="Open Firmware", command=self._open_fw).pack(side=tk.LEFT)
+        ttk.Button(bar, text="Open Firmware", command=self._open_fw)\
+            .pack(side=tk.LEFT, padx=3, pady=(3,3))
 
         self.fw_label = ttk.Label(bar, text="No firmware loaded")
-        self.fw_label.pack(side=tk.LEFT, padx=(12, 0))
+        self.fw_label.pack(fill=tk.X, padx=3, pady=(3,3))
+
+        self.version_label = ttk.Label(master=bar, text="")
+        self.version_label.pack(side=tk.BOTTOM, fill=tk.X, padx=3, pady=(3,3))
 
     def _build_tabs(self):
         tabControl = ttk.Notebook(self.root)
@@ -195,19 +200,28 @@ class FirmwareGUI:
         controls = ttk.Frame(self.tab_creator)
         controls.pack(fill=tk.X, padx=6, pady=(0, 6))
 
-        ttk.Label(controls, text="Quality preset:").pack(side=tk.LEFT)
+        ttk.Label(controls, text="Quality preset:").grid(row=0, column=0)
 
         self.quality_combo = ttk.Combobox(
             controls,
             textvariable=self.quality_var,
             values=list(ENCODING_PRESETS.keys()),
             state="readonly",
-            width=24,
+            width=81,
         )
-        self.quality_combo.pack(side=tk.LEFT, padx=(6, 0))
+        self.quality_combo.grid(row=0, column=1, padx=3, pady=(3,3))
         self.quality_combo.bind(
             "<<ComboboxSelected>>", lambda _evt: self._update_space_indicator()
         )
+
+        ttk.Label(controls, text="Version:").grid(row=1, column=0)
+
+        self.fw_version_entry = ttk.Entry(
+            controls,
+            textvariable=self.version_str_var,
+            width=85
+        )
+        self.fw_version_entry.grid(row=1, column=1)
 
         self.save_btn = ttk.Button(
             controls,
@@ -215,7 +229,7 @@ class FirmwareGUI:
             command=self._save_new_fw,
             state=tk.DISABLED,
         )
-        self.save_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.save_btn.grid(row=2, column=0, columnspan=2)
 
     def _build_free_space_indicator(self):
         frame = ttk.LabelFrame(self.root, text="Used space")
@@ -269,6 +283,9 @@ class FirmwareGUI:
         self.fw_label.configure(
             text=f"{os.path.basename(path)}  ({self.fw.segment_count} segments)"
         )
+        version = self.fw.version.decode("utf8")
+        self.version_label.configure(text=version)
+        self.version_str_var.initialize(version)
         self.save_btn.configure(state=tk.NORMAL)
         self._log(f"Loaded {path}  —  {self.fw.segment_count} audio segments found")
         self._populate_segments()
