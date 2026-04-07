@@ -3163,9 +3163,12 @@ def main():
                 "--patch-out requires at least one --inject-raw or --inject-wav"
             )
         if inject_seg_raw and inject_seg_wav:
-            seg_ids_raw = [i for (i, _) in inject_seg_raw]
-            seg_ids_wav = [i for (i, _) in inject_seg_wav]
-            # TODO: Check for overlaps
+            seg_ids_raw = set([i for (i, _) in inject_seg_raw])
+            seg_ids_wav = set([i for (i, _) in inject_seg_wav])
+            if seg_ids_raw.intersection(seg_ids_wav):
+                raise Exception(
+                    "Overlap of audio segment indexes for to-be-injected samples"
+                )
 
         if inject_seg_wav:
             encoder = SirenEncoder(fw.data)
