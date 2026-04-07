@@ -30,8 +30,8 @@ from vpe import (
     FirmwareDecoderContext,
     ISD9160Firmware,
     RfUnitSound,
-    VPEEncoder,
-    VpeSegmentHeader,
+    SirenEncoder,
+    SirenSegmentHeader,
 )
 
 
@@ -349,7 +349,7 @@ class FirmwareGUI:
             row_widgets = self._segment_rows[idx]
             codec = seg.codec
             hdr = seg.get_header()
-            if isinstance(hdr, VpeSegmentHeader):
+            if isinstance(hdr, SirenSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
             elif isinstance(hdr, DPCMSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz"
@@ -390,7 +390,7 @@ class FirmwareGUI:
             row_widgets = self._creator_rows[idx]
             codec = seg.codec
             hdr = seg.get_header()
-            if isinstance(hdr, VpeSegmentHeader):
+            if isinstance(hdr, SirenSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz ({hdr.bitrate}bps {hdr.num_frames}fr {hdr.duration_secs:.1f}s)"
             elif isinstance(hdr, DPCMSegmentHeader):
                 details = f"{hdr.samplerate // 1000}kHz"
@@ -545,18 +545,18 @@ class FirmwareGUI:
 
     def _make_stub_seg(self, index: int):
         profile = self._selected_profile()
-        self.creator_segments[index] = AudioSegment.vpe_stub(profile)
+        self.creator_segments[index] = AudioSegment.siren_stub(profile)
         hdr = self.creator_segments[index].get_header()
-        if isinstance(hdr, VpeSegmentHeader):
+        if isinstance(hdr, SirenSegmentHeader):
             self._log(
-                f"Segment {index} converted to VPE stub ({hdr.samplerate} Hz, {hdr.num_frames} frame, {len(self.creator_segments[index])} bytes)"
+                f"Segment {index} converted to Siren stub ({hdr.samplerate} Hz, {hdr.num_frames} frame, {len(self.creator_segments[index])} bytes)"
             )
         self.root.after(0, self._populate_creator)
 
     def _do_inject_wav(self, index: int, wav_path: str):
         try:
             encoding_profile = self._selected_profile()
-            encoder = VPEEncoder(self.fw.data)
+            encoder = SirenEncoder(self.fw.data)
             audio_segment = encoder.encode_wav_into_audio_segment(
                 wav_path, encoding_profile
             )

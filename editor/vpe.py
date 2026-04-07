@@ -1,9 +1,9 @@
 """
-ISD9160 VPE/DPCM Audio Extractor
+ISD9160 VPE Siren/DPCM Audio Extractor
 Extracts audio segments from Nuvoton ISD9160 firmware dumps and converts to WAV.
 
 Supports:
-  - VPE/Siren7 codec (segment first byte & 0x1F == 0x1D or 0x1E)
+  - Siren7/14 codec (segment first byte & 0x1F == 0x1D or 0x1E)
   - DPCM codec (all other segment types)
 
 Usage:
@@ -83,7 +83,7 @@ class RfUnitSound(Enum):
 
 class Codec(Enum):
     UNKNOWN = 0
-    VPE = 1
+    SIREN = 1
     DPCM = 2
 
 
@@ -321,9 +321,9 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
 class AudioSegment:
     data: bytes
 
-    def get_header(self) -> DPCMSegmentHeader | VpeSegmentHeader | None:
-        if self.is_vpe:
-            return VpeSegmentHeader.from_bytes(self.data)
+    def get_header(self) -> DPCMSegmentHeader | SirenSegmentHeader | None:
+        if self.is_siren:
+            return SirenSegmentHeader.from_bytes(self.data)
         elif self.is_dpcm:
             return DPCMSegmentHeader.from_bytes(self.data)
         else:
@@ -340,8 +340,8 @@ class AudioSegment:
         return cls(b"")
 
     @classmethod
-    def vpe_stub(cls, profile: EncodingProfile) -> AudioSegment:
-        header = VpeSegmentHeader(
+    def siren_stub(cls, profile: EncodingProfile) -> AudioSegment:
+        header = SirenSegmentHeader(
             profile.first_byte,
             0xFF,
             1,
@@ -364,13 +364,13 @@ class AudioSegment:
         if self.codec_type == 0:
             return Codec.UNKNOWN
         elif self.codec_type in (0x1D, 0x1E):
-            return Codec.VPE
+            return Codec.SIREN
         else:
             return Codec.DPCM
 
     @property
-    def is_vpe(self) -> bool:
-        return self.codec == Codec.VPE
+    def is_siren(self) -> bool:
+        return self.codec == Codec.SIREN
 
     @property
     def is_dpcm(self) -> bool:
@@ -395,7 +395,7 @@ class DPCMContext:
 
 
 @dataclass
-class VpeFrameParams:
+class SirenFrameParams:
     scale_factors: list[int]
     quant_indices: list[int]
     shift: int
@@ -451,7 +451,7 @@ class DPCMSegmentHeader(Serializable):
 
 
 @dataclass
-class VpeSegmentHeader(Serializable):
+class SirenSegmentHeader(Serializable):
     # u8
     codec_byte: int
     # u8
@@ -485,7 +485,7 @@ class VpeSegmentHeader(Serializable):
 
     def to_bytes(self) -> bytes:
         out = struct.pack(
-            VpeSegmentHeader._struct_fmt(),
+            SirenSegmentHeader._struct_fmt(),
             self.codec_byte,
             self.unknown,
             self.num_frames,
@@ -531,7 +531,7 @@ class EncodingProfile:
 
     def estimate_duration_secs(self, available_bytes: int) -> float:
         payload_bytes = max(
-            0, available_bytes - len(VpeSegmentHeader(0, 0, 0, 0, 0, 0, 0, 0))
+            0, available_bytes - len(SirenSegmentHeader(0, 0, 0, 0, 0, 0, 0, 0))
         )
         if (
             self.bytes_per_frame <= 0
@@ -546,8 +546,8 @@ class EncodingProfile:
 ENCODING_32KHZ = EncodingProfile(0xDE, 14000, 48000, 28, 960, 640, 1.0)
 ENCODING_16KHZ = EncodingProfile(0xBD, 14000, 16000, 14, 320, 320, 1.0)
 ENCODING_PRESETS = {
-    "32 kHz / 48 kbps VPE": ENCODING_32KHZ,
-    "16 kHz / 16 kbps VPE": ENCODING_16KHZ,
+    "32 kHz / 48 kbps Siren14": ENCODING_32KHZ,
+    "16 kHz / 16 kbps Siren7": ENCODING_16KHZ,
 }
 ENCODING_BEST = ENCODING_32KHZ
 
@@ -567,7 +567,7 @@ def ALIGN(offset: int) -> int:
 # ============================================================================
 
 
-class VPEBitstreamReader:
+class SirenBitstreamReader:
     """MSB-first 16-bit word bitstream reader matching VPE firmware behavior."""
 
     def __init__(self, data):
@@ -595,8 +595,8 @@ class VPEBitstreamReader:
         return val
 
 
-class VPEBitstreamWriter:
-    """MSB-first 16-bit word bitstream writer matching VPE firmware behavior.
+class SirenBitstreamWriter:
+    """MSB-first 16-bit word bitstream writer matching VPE firmware behavior for Siren audio.
 
     The firmware frames appear to be padded with 1-bits (0xFF fill) for any unused tail bits.
     We match that by initializing the buffer to 0xFF and only clearing bits as needed.
@@ -677,13 +677,13 @@ class DPCMBitstreamReader:
 
 
 # ============================================================================
-# VPE/Siren7 Decoder
+# Siren7/14 Decoder
 # ============================================================================
 
 
-class VPEDecoder:
+class SirenDecoder:
     """
-    VPE (Voice Processing Engine) decoder for Nuvoton ISD9160.
+    Siren7/14 decoder for Nuvoton ISD9160.
     Implements the Siren7/G.722.1-compatible codec from decompiled firmware.
     """
 
@@ -1256,11 +1256,11 @@ class VPEDecoder:
         """Decode a complete VPE audio segment to PCM samples."""
         self.last_debug_report = None
 
-        if not segment.is_vpe:
-            raise ValueError("Not a VPE segment")
+        if not segment.is_siren:
+            raise ValueError("Not a Siren segment")
 
         # Parse segment header
-        header = VpeSegmentHeader.from_bytes(segment.data)
+        header = SirenSegmentHeader.from_bytes(segment.data)
         assert header.unknown == 0xFF, (
             f"Unexpected value in header[1] byte. Expected: 0xFF, Got: {header.unknown:#02x}"
         )
@@ -1325,7 +1325,7 @@ class VPEDecoder:
                 break
 
             frame_data = compressed[frame_start:frame_end]
-            bs = VPEBitstreamReader(frame_data)
+            bs = SirenBitstreamReader(frame_data)
 
             try:
                 # Step 1: Decode scale factors
@@ -1472,13 +1472,13 @@ class VPEDecoder:
 
 
 # ============================================================================
-# VPE/Siren7 Encoder (experimental, in-place replace)
+# Siren7/14 Encoder (experimental, in-place replace)
 # ============================================================================
 
 
-class VPEEncoder:
+class SirenEncoder:
     """
-    VPE/Siren7 (G.722.1 / Annex C) encoder for in-place segment replacement.
+    Siren7 (G.722.1 / Annex C) encoder for in-place segment replacement.
 
     Current strategy (pragmatic, stable for patching fixed-size slots):
       - Reuse per-frame scale-factor coding and power_cat values from the original firmware frames
@@ -1490,7 +1490,7 @@ class VPEEncoder:
 
     def __init__(self, firmware_data):
         self.fw: bytes = firmware_data
-        self.dec = VPEDecoder(firmware_data, debug_enabled=False)
+        self.dec = SirenDecoder(firmware_data, debug_enabled=False)
         self._build_huffman_encode_tables()
         self._build_sf_encode_tables()
 
@@ -1635,8 +1635,8 @@ class VPEEncoder:
         bits_per_frame: int,
         num_subbands: int,
         samples_per_frame: int,
-    ) -> VpeFrameParams:
-        bs = VPEBitstreamReader(frame_bytes)
+    ) -> SirenFrameParams:
+        bs = SirenBitstreamReader(frame_bytes)
         scale_factors, quant_indices, shift, bits_left = self.dec._decode_scale_factors(
             bs, num_subbands, bits_per_frame
         )
@@ -1671,7 +1671,7 @@ class VPEEncoder:
         )
         self.dec._apply_power_category(power_cat, categories, reorder)
 
-        return VpeFrameParams(
+        return SirenFrameParams(
             [int(v) for v in scale_factors],
             [int(v) for v in quant_indices],
             int(shift),
@@ -1708,8 +1708,8 @@ class VPEEncoder:
         else:
             raise ValueError(f"Unsupported num_samples={N}")
 
-        g1a, g1b, g1d = VPEDecoder.OLA_GAINS_1H
-        g2a, g2b, g2c = VPEDecoder.OLA_GAINS_2H
+        g1a, g1b, g1d = SirenDecoder.OLA_GAINS_1H
+        g2a, g2b, g2c = SirenDecoder.OLA_GAINS_2H
         SCALE = float(1 << 26)
 
         p = np.arange(half, dtype=np.int64)
@@ -1774,15 +1774,15 @@ class VPEEncoder:
         bitstream.  Returns the median offset (typically 8-14 depending on
         the firmware's quantizer table).
         """
-        header = VpeSegmentHeader.from_bytes(segment.data)
+        header = SirenSegmentHeader.from_bytes(segment.data)
         compressed = segment.data[16:]
         if header.num_frames < 1:
             return 10.0  # safe default
 
         # Decode original segment to PCM
-        vpe_dec = VPEDecoder(self.fw, debug_enabled=False)
+        siren_dec = SirenDecoder(self.fw, debug_enabled=False)
         try:
-            samples, sr = vpe_dec.decode_segment(segment)
+            samples, sr = siren_dec.decode_segment(segment)
         except Exception:
             return 10.0
         if not samples:
@@ -1933,7 +1933,7 @@ class VPEEncoder:
         bits_per_frame: int,
         samples_per_frame: int,
         sf_offset=0.0,
-    ) -> VpeFrameParams:
+    ) -> SirenFrameParams:
         """Compute all encoding parameters from unshifted spectral coefficients.
 
         Replaces template-copying with proper analysis: derives scale factors,
@@ -2006,7 +2006,7 @@ class VPEEncoder:
             else:
                 power_cat = min(num_iterations - 1, (1 << cat_bits) - 1)
 
-        return VpeFrameParams(
+        return SirenFrameParams(
             [int(sf) for sf in scale_factors],
             [int(qi) for qi in quant_indices],
             int(shift),
@@ -2017,7 +2017,7 @@ class VPEEncoder:
         )
 
     def _encode_scale_factors(
-        self, bw: VPEBitstreamWriter, scale_factors, num_subbands: int
+        self, bw: SirenBitstreamWriter, scale_factors, num_subbands: int
     ):
         if num_subbands > len(self._sf_codes):
             raise ValueError(f"num_subbands too large for SF tables: {num_subbands}")
@@ -2112,9 +2112,9 @@ class VPEEncoder:
 
     def _encode_spectral(
         self,
-        bw: VPEBitstreamWriter,
+        bw: SirenBitstreamWriter,
         spectral,
-        template: VpeFrameParams,
+        template: SirenFrameParams,
         num_subbands: int,
     ):
         categories = template.categories
@@ -2190,11 +2190,11 @@ class VPEEncoder:
     def _encode_frame(
         self,
         spectral_560,
-        template: VpeFrameParams,
+        template: SirenFrameParams,
         bits_per_frame: int,
         num_subbands: int,
     ):
-        bw = VPEBitstreamWriter(bits_per_frame)
+        bw = SirenBitstreamWriter(bits_per_frame)
         self._encode_scale_factors(bw, template.scale_factors, num_subbands)
         bw.write_bits(int(template.power_cat), int(template.cat_bits))
         # Use actual remaining bits as spectral budget (more accurate than
@@ -2204,10 +2204,10 @@ class VPEEncoder:
         self._encode_spectral(bw, spectral_560, actual, num_subbands)
         return bw.get_bytes()
 
-    def encode_vpe_segment_frames_from_wav(
+    def encode_siren_segment_frames_from_wav(
         self, wav_path: str, profile: EncodingProfile = ENCODING_BEST
     ) -> tuple[bytes, int]:
-        """Encode a WAV file into VPE compressed frames for in-place segment
+        """Encode a WAV file into Siren compressed frames for in-place segment
         replacement.
 
         Instead of copying scale factors / categories from the original
@@ -2292,10 +2292,10 @@ class VPEEncoder:
         return bytes(out), num_frames
 
     @staticmethod
-    def create_vpe_segment_header(
+    def create_siren_segment_header(
         profile: EncodingProfile, num_frames: int
-    ) -> VpeSegmentHeader:
-        return VpeSegmentHeader(
+    ) -> SirenSegmentHeader:
+        return SirenSegmentHeader(
             profile.first_byte,
             0xFF,
             num_frames,
@@ -2309,10 +2309,10 @@ class VPEEncoder:
     def encode_wav_into_audio_segment(
         self, wav_path: str, profile: EncodingProfile
     ) -> AudioSegment:
-        new_frames, num_frames = self.encode_vpe_segment_frames_from_wav(
+        new_frames, num_frames = self.encode_siren_segment_frames_from_wav(
             wav_path, profile
         )
-        seg_header = self.create_vpe_segment_header(profile, num_frames)
+        seg_header = self.create_siren_segment_header(profile, num_frames)
         return AudioSegment(seg_header.to_bytes() + new_frames)
 
 
@@ -2800,12 +2800,12 @@ class DPCMDecoder:
 
 class FirmwareDecoderContext:
     def __init__(self, fw_data: bytes):
-        self.vpe_decoder = VPEDecoder(fw_data, debug_enabled=False)
+        self.siren_decoder = SirenDecoder(fw_data, debug_enabled=False)
         self.dpcm_decoder = DPCMDecoder(fw_data)
 
     def decode_segment(self, segment: AudioSegment) -> tuple[list[int], int]:
-        if segment.is_vpe:
-            samples, sample_rate = self.vpe_decoder.decode_segment(segment)
+        if segment.is_siren:
+            samples, sample_rate = self.siren_decoder.decode_segment(segment)
         elif segment.is_dpcm:
             samples, sample_rate = self.dpcm_decoder.decode_segment(segment)
         else:
@@ -3134,7 +3134,7 @@ def main():
         action="append",
         nargs=2,
         metavar=("IDX", "FRAMES_BIN"),
-        help="Patch: replace only VPE compressed frames (must match seg.size-16). Can be repeated.",
+        help="Patch: replace only Siren compressed frames (must match seg.size-16). Can be repeated.",
     )
     args = parser.parse_args()
 
@@ -3168,9 +3168,9 @@ def main():
             # TODO: Check for overlaps
 
         if inject_seg_wav:
-            encoder = VPEEncoder(fw.data)
+            encoder = SirenEncoder(fw.data)
             for idx, wav_path in inject_seg_wav:
-                print(f"\nEncoding WAV -> VPE for segment {idx}: {wav_path}")
+                print(f"\nEncoding WAV -> Siren for segment {idx}: {wav_path}")
                 audio_segment = encoder.encode_wav_into_audio_segment(
                     wav_path, ENCODING_BEST
                 )
