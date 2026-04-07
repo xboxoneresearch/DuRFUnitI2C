@@ -46,7 +46,7 @@ except ImportError:
 
 # VPE Firmware Header at 0x8000
 VPE_HEADER_ADDR = 0x8000
-VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
+# VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
 VPE_AUDIO_DATA_LIMIT = 0x23000
 VPE_MAGIC = 0x1155AAFF
 VPE_AUDIOLIB_MAGIC = 0xCF565045  # b"EPV\xCF"
@@ -78,6 +78,20 @@ ADDR_DPCM_TABLES = 0x7090  # DPCM step/prediction tables (from DAT_00000674)
 # ============================================================================
 # Dataclasses
 # ============================================================================
+
+
+class RfUnitSound(Enum):
+    POWERON = 0x00
+    EJECT = 0x01
+    POWEROFF = 0x02
+
+    PADDING1 = 0x03
+    PADDING2 = 0x04
+    PADDING3 = 0x05
+
+    SYNC = 0x06
+    NO_DISC = 0x07
+    PADDING4 = 0x08
 
 
 class Codec(Enum):

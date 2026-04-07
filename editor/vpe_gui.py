@@ -29,6 +29,7 @@ from vpe import (
     EncodingProfile,
     FirmwareDecoderContext,
     ISD9160Firmware,
+    RfUnitSound,
     VPEEncoder,
     VpeSegmentHeader,
 )
@@ -355,8 +356,10 @@ class FirmwareGUI:
             else:
                 details = "Unpopulated"
             size, unit = size_to_unit(len(seg))
+
+            sound_name = RfUnitSound(idx)
             # Update labels and buttons with clear named attributes
-            row_widgets.idx_label["text"] = str(idx)
+            row_widgets.idx_label["text"] = f"{str(idx)} ({sound_name.name})"
             row_widgets.codec_label["text"] = codec.name
             row_widgets.offset_label["text"] = f"0x{entry.start:05X}"
             row_widgets.size_label["text"] = f"{size:.2f} {unit}"
@@ -394,8 +397,9 @@ class FirmwareGUI:
             else:
                 details = "Unpopulated"
             size, unit = size_to_unit(len(seg))
+            sound_name = RfUnitSound(idx)
             # Update labels and buttons with clear named attributes
-            row_widgets.idx_label["text"] = str(idx)
+            row_widgets.idx_label["text"] = f"{str(idx)} ({sound_name.name})"
             row_widgets.codec_label["text"] = codec.name
             row_widgets.size_label["text"] = f"{size:.2f} {unit}"
             row_widgets.details_label["text"] = details
