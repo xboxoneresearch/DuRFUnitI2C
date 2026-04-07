@@ -42,6 +42,7 @@ def size_to_unit(size: int) -> tuple[int | float, str]:
 
 class SegmentRowWidgets:
     """Container for playback segment row widgets."""
+
     def __init__(self, parent: tk.Widget, row: int):
         self.idx_label = ttk.Label(parent)
         self.codec_label = ttk.Label(parent)
@@ -78,6 +79,7 @@ class SegmentRowWidgets:
 
 class CreatorRowWidgets:
     """Container for creator segment row widgets."""
+
     def __init__(self, parent: tk.Widget, row: int):
         self.idx_label = ttk.Label(parent)
         self.codec_label = ttk.Label(parent)
@@ -121,9 +123,7 @@ class FirmwareGUI:
         self.decoder: FirmwareDecoderContext
         self.fw: ISD9160Firmware
         self.fw_path: str  # path to loaded .bin
-        self.creator_segments: list[AudioSegment] = [
-            AudioSegment.empty() for _ in range(9)
-        ]
+        self.creator_segments: list[AudioSegment] = [AudioSegment.empty()] * 9
         self.version_str_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value=next(iter(ENCODING_PRESETS)))
 
@@ -140,14 +140,15 @@ class FirmwareGUI:
         bar = ttk.Frame(self.root)
         bar.pack(fill=tk.X, padx=6, pady=(6, 6))
 
-        ttk.Button(bar, text="Open Firmware", command=self._open_fw)\
-            .pack(side=tk.LEFT, padx=3, pady=(3,3))
+        ttk.Button(bar, text="Open Firmware", command=self._open_fw).pack(
+            side=tk.LEFT, padx=3, pady=(3, 3)
+        )
 
         self.fw_label = ttk.Label(bar, text="No firmware loaded")
-        self.fw_label.pack(fill=tk.X, padx=3, pady=(3,3))
+        self.fw_label.pack(fill=tk.X, padx=3, pady=(3, 3))
 
         self.version_label = ttk.Label(master=bar, text="")
-        self.version_label.pack(side=tk.BOTTOM, fill=tk.X, padx=3, pady=(3,3))
+        self.version_label.pack(side=tk.BOTTOM, fill=tk.X, padx=3, pady=(3, 3))
 
     def _build_tabs(self):
         tabControl = ttk.Notebook(self.root)
@@ -209,7 +210,7 @@ class FirmwareGUI:
             state="readonly",
             width=81,
         )
-        self.quality_combo.grid(row=0, column=1, padx=3, pady=(3,3))
+        self.quality_combo.grid(row=0, column=1, padx=3, pady=(3, 3))
         self.quality_combo.bind(
             "<<ComboboxSelected>>", lambda _evt: self._update_space_indicator()
         )
@@ -217,9 +218,7 @@ class FirmwareGUI:
         ttk.Label(controls, text="Version:").grid(row=1, column=0)
 
         self.fw_version_entry = ttk.Entry(
-            controls,
-            textvariable=self.version_str_var,
-            width=85
+            controls, textvariable=self.version_str_var, width=85
         )
         self.fw_version_entry.grid(row=1, column=1)
 
@@ -293,9 +292,9 @@ class FirmwareGUI:
 
     # ------------------------------------------------------------------ save
     def _save_new_fw(self):
+        print(self.version_str_var.get())
         new_fw = self.fw.patch_with_new_segments(
-            self.creator_segments, 
-            self.version_str_var.get()
+            self.creator_segments, self.version_str_var.get()
         )
 
         path = filedialog.asksaveasfilename(
@@ -317,7 +316,9 @@ class FirmwareGUI:
     def _update_space_indicator(self):
         total_used = sum(len(seg) for seg in self.creator_segments)
         if hasattr(self, "fw"):
-            max_bytes = max(1, VPE_AUDIO_DATA_LIMIT - self.fw.audiodata_start_offset)
+            max_bytes = max(
+                1, VPE_AUDIO_DATA_LIMIT - self.fw.audiolib_header.audiodata_start
+            )
             pct = min(100.0, (total_used / max_bytes) * 100.0)
             remaining_bytes = max(0, max_bytes - total_used)
             remaining_secs = self._selected_profile().estimate_duration_secs(
@@ -361,15 +362,21 @@ class FirmwareGUI:
             row_widgets.size_label["text"] = f"{size:.2f} {unit}"
             row_widgets.details_label["text"] = details
             row_widgets.play_btn["command"] = lambda s=seg: self._play_seg(s)
-            row_widgets.extract_wav_btn["command"] = lambda s=seg, i=idx: self._extract_seg_wav(i, s)
-            row_widgets.extract_raw_btn["command"] = lambda s=seg, i=idx: self._extract_seg_raw(i, s)
+            row_widgets.extract_wav_btn["command"] = lambda s=seg, i=idx: (
+                self._extract_seg_wav(i, s)
+            )
+            row_widgets.extract_raw_btn["command"] = lambda s=seg, i=idx: (
+                self._extract_seg_raw(i, s)
+            )
             row_widgets.grid(row=idx + 1)
 
     def _populate_creator(self):
         seg_count = len(self.creator_segments)
         # Grow or shrink row cache
         while len(self._creator_rows) < seg_count:
-            row_widgets = CreatorRowWidgets(self.creator_inner, len(self._creator_rows) + 1)
+            row_widgets = CreatorRowWidgets(
+                self.creator_inner, len(self._creator_rows) + 1
+            )
             row_widgets.grid()
             self._creator_rows.append(row_widgets)
         while len(self._creator_rows) > seg_count:
@@ -394,9 +401,13 @@ class FirmwareGUI:
             row_widgets.details_label["text"] = details
             row_widgets.stub_btn["command"] = lambda i=idx: self._make_stub_seg(i)
             row_widgets.play_btn["command"] = lambda s=seg: self._play_seg(s)
-            row_widgets.play_btn["state"] = tk.DISABLED if len(seg.data) == 0 else tk.NORMAL
+            row_widgets.play_btn["state"] = (
+                tk.DISABLED if len(seg.data) == 0 else tk.NORMAL
+            )
             row_widgets.inject_wav_btn["command"] = lambda i=idx: self._inject_seg(i)
-            row_widgets.inject_raw_btn["command"] = lambda i=idx: self._inject_seg_raw(i)
+            row_widgets.inject_raw_btn["command"] = lambda i=idx: self._inject_seg_raw(
+                i
+            )
             row_widgets.grid(row=idx + 1)
         self._update_space_indicator()
 

@@ -11,7 +11,6 @@ Usage:
 """
 
 from __future__ import annotations
-from pyexpat import version_info
 
 import abc
 import argparse
@@ -22,7 +21,8 @@ import struct
 import traceback
 import wave
 from dataclasses import dataclass
-from enum import Enum, verify
+from enum import Enum
+
 from fastcrc import crc16
 
 try:
@@ -49,11 +49,11 @@ VPE_HEADER_ADDR = 0x8000
 VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
 VPE_AUDIO_DATA_LIMIT = 0x23000
 VPE_MAGIC = 0x1155AAFF
-VPE_AUDIOLIB_MAGIC = 0xCF565045 # b"EPV\xCF"
+VPE_AUDIOLIB_MAGIC = 0xCF565045  # b"EPV\xCF"
 
 DATA_SECTION_END = 0x233FF
 MAX_VERSION_LEN = 85
-CRC16_LEN = 2 # bytes
+CRC16_LEN = 2  # bytes
 
 # Key table addresses within firmware (mapped from Ghidra analysis)
 ADDR_QUANTIZER_STEPS = 0x9354  # 8 bytes: step sizes for categories 0-7
@@ -85,6 +85,7 @@ class Codec(Enum):
     VPE = 1
     DPCM = 2
 
+
 class Serializable(abc.ABC):
     @classmethod
     def from_bytes(cls, buf: bytes, offset: int = 0):
@@ -93,23 +94,24 @@ class Serializable(abc.ABC):
 
     @abc.abstractmethod
     def to_bytes(self) -> bytes:
-        pass
+        raise NotImplementedError()
 
     @staticmethod
     @abc.abstractmethod
     def _struct_fmt() -> str:
-        pass
+        raise NotImplementedError()
 
-    @property
     @abc.abstractmethod
     def __len__(self) -> int:
-        pass
+        raise NotImplementedError()
+
 
 class ValidityCheck(abc.ABC):
     @property
     @abc.abstractmethod
     def is_valid(self) -> bool:
         pass
+
 
 @dataclass
 class LibrarySegEntry(Serializable):
@@ -131,6 +133,7 @@ class LibrarySegEntry(Serializable):
 
     def __len__(self) -> int:
         return 8
+
 
 @dataclass
 class VpeHeader(Serializable, ValidityCheck):
@@ -180,12 +183,13 @@ class VpeHeader(Serializable, ValidityCheck):
             f"funcptr decode: {self.funcptr_decode:#04x}\n"
         )
 
+
 @dataclass
 class AudioLibraryHeader(Serializable, ValidityCheck):
     magic: int
     unknown1: int
     unknown2: int
-    audio_start_offset: int
+    audio_toc_offset: int
     segment_count: int
 
     # Metadata of sorts?
@@ -216,15 +220,19 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
     def is_valid(self) -> bool:
         return self.magic == VPE_AUDIOLIB_MAGIC
 
-    def get_offset_for_audio_entry(self, index: int) -> int:
+    def get_offset_for_audio_toc_entry(self, index: int) -> int:
         if index < 0 or index > self.segment_count:
             raise Exception("Invalid segment index")
-        return self.audio_start_offset + index * 8
+        return self.audio_toc_offset + index * 8
+
+    @property
+    def audiodata_start(self):
+        return self.audio_toc_offset + (self.segment_count * 8)
 
     @property
     def version_string_offset(self) -> int:
         return self.audio_end_offset
-    
+
     @property
     def crc16_hash_offset(self) -> int:
         return self.vpe_end_offset - CRC16_LEN
@@ -235,7 +243,7 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
             self.magic,
             self.unknown1,
             self.unknown2,
-            self.audio_start_offset,
+            self.audio_toc_offset,
             self.segment_count,
             self.unknown3,
             self.vpe_end_offset,
@@ -284,7 +292,7 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
             f"Magic: {self.magic:#04x} ({struct.pack('<I', self.magic)[:3].decode('utf8')})\n"
             f"Unknown: {self.unknown1:#04x}\n"
             f"Unknown2: {self.unknown2:#04x}\n"
-            f"Audio offset: {self.audio_start_offset:#04x}\n"
+            f"Audio TOC offset: {self.audio_toc_offset:#04x}\n"
             f"Segment count: {self.segment_count}\n"
             f"Unknown3: {self.unknown3:#04x}\n"
             f"VPE end offset: {self.vpe_end_offset:#04x}\n"
@@ -296,7 +304,6 @@ class AudioLibraryHeader(Serializable, ValidityCheck):
             f"VPE start offset: {self.vpe_start_offset:#04x}\n"
             f"Unknown8: {self.unknown8:#04x}\n"
             f"FW Version: {self.fw_version:#04x}\n"
-
             # Meta?
             f"Meta Unknown1: {self.meta_unk1:#04x} ({self.meta_unk1})\n"
             f"Meta Unknown2: {self.meta_unk2:#04x} ({self.meta_unk2})\n"
@@ -548,9 +555,11 @@ ENCODING_BEST = ENCODING_32KHZ
 # Alignment helper
 # ============================================================================
 
+
 def ALIGN(offset: int) -> int:
     ALIGNMENT = 4
     return ALIGNMENT * ((offset + ALIGNMENT - 1) // ALIGNMENT)
+
 
 # ============================================================================
 # Bitstream Reader (matches vpe_read_bit behavior)
@@ -2875,24 +2884,16 @@ class ISD9160Firmware:
     @property
     def audiolib_header(self) -> AudioLibraryHeader:
         if not self._audiolib_header:
-            self._audiolib_header = AudioLibraryHeader.from_bytes(self.data, self.vpe_header.library_offset)
+            self._audiolib_header = AudioLibraryHeader.from_bytes(
+                self.data, self.vpe_header.library_offset
+            )
         return self._audiolib_header
 
     @property
-    def audiodata_start_offset(self) -> int:
-        return self.audiolib_header.audio_start_offset
-
-    @property
-    def audiodata_end_offset(self) -> int:
-        return self.audiolib_header.audio_end_offset
-
-    @property
-    def audiodata_total_size(self) -> int:
-        return self.audiodata_end_offset - self.audiodata_start_offset
-
-    @property
     def checksum(self) -> int:
-        chksum = struct.unpack_from(">H", self.data, self.audiolib_header.crc16_hash_offset)[0]
+        chksum = struct.unpack_from(
+            ">H", self.data, self.audiolib_header.crc16_hash_offset
+        )[0]
         return chksum
 
     @checksum.setter
@@ -2906,7 +2907,10 @@ class ISD9160Firmware:
         return crc16.ibm_3740(self.data[start:end])
 
     def calc_checksum(self) -> int:
-        return self._calc_checksum(self.audiolib_header.vpe_start_offset, self.audiolib_header.crc16_hash_offset)
+        return self._calc_checksum(
+            self.audiolib_header.vpe_start_offset,
+            self.audiolib_header.crc16_hash_offset,
+        )
 
     def is_checksum_valid(self) -> bool:
         return self.calc_checksum() == self.checksum
@@ -2939,11 +2943,14 @@ class ISD9160Firmware:
         ver_end_offset = self.data.index(b"\x00", ver_str_ptr)
         self.version = self.data[ver_str_ptr:ver_end_offset].decode("utf-8")
 
-        assert ALIGN(ver_str_ptr + len(self.version) + 1 + CRC16_LEN) == self.audiolib_header.vpe_end_offset
+        assert (
+            ALIGN(ver_str_ptr + len(self.version) + 1 + CRC16_LEN)
+            == self.audiolib_header.vpe_end_offset
+        )
 
         # Parse segment table
         for i in range(self.segment_count):
-            entry_addr = self.audiolib_header.get_offset_for_audio_entry(i)
+            entry_addr = self.audiolib_header.get_offset_for_audio_toc_entry(i)
             entry = LibrarySegEntry.from_bytes(self.data, entry_addr)
             # Firmware segment table end offsets appear to be inclusive: next.start == prev.end + 1.
             if (
@@ -2951,11 +2958,13 @@ class ISD9160Firmware:
                 or entry.end >= len(self.data)
                 or entry.start > entry.end
             ):
-                raise Exception(f"  Segment {i}: INVALID ({entry.start:#X} - {entry.end:#X})")
+                raise Exception(
+                    f"  Segment {i}: INVALID ({entry.start:#X} - {entry.end:#X})"
+                )
 
             self.seg_entries.append(entry)
 
-        assert self.seg_entries[-1].end + 1 == self.audiodata_end_offset
+        assert self.seg_entries[-1].end + 1 == self.audiolib_header.audio_end_offset
         assert len(self.seg_entries) == self.audiolib_header.segment_count
 
     def extract_all(self, output_dir):
@@ -2999,26 +3008,27 @@ class ISD9160Firmware:
     def get_all_segments(self) -> list[AudioSegment]:
         return [self.get_segment(i) for i in range(self.audiolib_header.segment_count)]
 
-    def patch_with_new_segments(self, new_segments: list[AudioSegment], version_str: str) -> ISD9160Firmware:
+    def patch_with_new_segments(
+        self, new_segments: list[AudioSegment], version_str: str
+    ) -> ISD9160Firmware:
         fw_buf = bytearray(self.data).copy()
         if not fw_buf:
             raise Exception("No firmware loaded.. how did you get here?")
 
-        lib_entry_ptr = self.audiolib_header.audio_start_offset
-        data_offset = self.audiodata_start_offset
+        toc_offset = self.audiolib_header.audio_toc_offset
         audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(fw_buf))
 
-        if data_offset >= audio_limit:
+        if toc_offset >= audio_limit:
             raise Exception(
-                f"Invalid audio data region: start=0x{data_offset:05X}, "
-                f"limit=0x{audio_limit:05X}"
+                f"Invalid audio data region: start={toc_offset:#04X}, limit={audio_limit:#04X}"
             )
 
         # Zero out existing audio data
-        fw_buf[data_offset:audio_limit] = b"\xff" * (audio_limit - data_offset)
-        current_pos = data_offset
+        fw_buf[toc_offset:audio_limit] = b"\xff" * (audio_limit - toc_offset)
 
-        next_pos = 0
+        current_audiodata_pos = self.audiolib_header.audiodata_start
+        unaligned_audiodata_pos = current_audiodata_pos
+
         for idx, segment in enumerate(new_segments):
             if segment.is_empty():
                 raise Exception(
@@ -3026,31 +3036,40 @@ class ISD9160Firmware:
                 )
 
             data_len = len(segment.data)
-            next_pos = current_pos + data_len
 
-            if next_pos > audio_limit:
+            if (current_audiodata_pos + data_len) > audio_limit:
                 raise Exception(
                     f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
                     f"while writing segment {idx}."
                 )
 
-            lib_entry = LibrarySegEntry(current_pos, next_pos - 1)
+            lib_entry = LibrarySegEntry(
+                current_audiodata_pos, current_audiodata_pos + data_len - 1
+            )
 
             # Overwrite entry in fw buffer
-            lib_entry_offset = lib_entry_ptr + (idx * len(lib_entry))
-            fw_buf[lib_entry_offset : lib_entry_offset + len(lib_entry)] = lib_entry.to_bytes()
+            lib_entry_offset = self.audiolib_header.get_offset_for_audio_toc_entry(idx)
+            fw_buf[lib_entry_offset : lib_entry_offset + len(lib_entry)] = (
+                lib_entry.to_bytes()
+            )
 
             # Overwrite audio data in fw buffer
-            fw_buf[current_pos:next_pos] = segment.data
-            current_pos = ALIGN(next_pos)
+            fw_buf[current_audiodata_pos : current_audiodata_pos + data_len] = (
+                segment.data
+            )
+
+            unaligned_audiodata_pos = current_audiodata_pos + data_len
+            current_audiodata_pos = ALIGN(unaligned_audiodata_pos)
 
         # This is the non-aligned offset!
-        audiodata_end_offset = next_pos
+        audiodata_end_offset = unaligned_audiodata_pos
 
         # Write version string + null terminator
         version_bytes = version_str.encode("utf-8") + b"\0"
         version_len = len(version_bytes)
-        fw_buf[audiodata_end_offset:audiodata_end_offset + version_len] = version_bytes
+        fw_buf[audiodata_end_offset : audiodata_end_offset + version_len] = (
+            version_bytes
+        )
 
         # Align offset to fit checksum right at the end
         vpe_end_addr = ALIGN(audiodata_end_offset + version_len + CRC16_LEN)
@@ -3058,16 +3077,17 @@ class ISD9160Firmware:
         # Prepare the metadata headers and write them to the buffer
         vpe_header = copy.deepcopy(self.vpe_header)
         audiolib_header = copy.deepcopy(self.audiolib_header)
-        
+
         vpe_header.vpe_end_offset = vpe_end_addr
         audiolib_header.vpe_end_offset = vpe_end_addr
         audiolib_header.audio_end_offset = audiodata_end_offset
 
-        print(vpe_header)
-        print(audiolib_header)
-
-        fw_buf[VPE_HEADER_ADDR:VPE_HEADER_ADDR + len(vpe_header)] = vpe_header.to_bytes()
-        fw_buf[vpe_header.library_offset: vpe_header.library_offset + len(audiolib_header)] = audiolib_header.to_bytes()
+        fw_buf[VPE_HEADER_ADDR : VPE_HEADER_ADDR + len(vpe_header)] = (
+            vpe_header.to_bytes()
+        )
+        fw_buf[
+            vpe_header.library_offset : vpe_header.library_offset + len(audiolib_header)
+        ] = audiolib_header.to_bytes()
 
         # Rehash
         fw = ISD9160Firmware(bytes(fw_buf), verify_crc=False)
@@ -3210,7 +3230,9 @@ def main():
         fw.audiolib_header.segment_count = 1
 
     fw.extract_all(args.output)
-    print(f"\nDone! Extracted {fw.audiolib_header.segment_count} segment(s) to {args.output}/")
+    print(
+        f"\nDone! Extracted {fw.audiolib_header.segment_count} segment(s) to {args.output}/"
+    )
 
 
 if __name__ == "__main__":
