@@ -23,22 +23,10 @@ import wave
 from dataclasses import dataclass
 from enum import Enum
 
+import numpy as np
 from fastcrc import crc16
-
-try:
-    import numpy as np
-
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-
-try:
-    from scipy.fft import dct as scipy_dct
-    from scipy.signal import resample_poly as scipy_resample_poly
-
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
+from scipy.fft import dct as scipy_dct
+from scipy.signal import resample_poly as scipy_resample_poly
 
 # ============================================================================
 # Constants from firmware analysis
@@ -46,7 +34,6 @@ except ImportError:
 
 # VPE Firmware Header at 0x8000
 VPE_HEADER_ADDR = 0x8000
-# VPE_DATA_BOUNDARY_ADDR = VPE_HEADER_ADDR + 0x0C
 VPE_AUDIO_DATA_LIMIT = 0x23000
 VPE_MAGIC = 0x1155AAFF
 VPE_AUDIOLIB_MAGIC = 0xCF565045  # b"EPV\xCF"
@@ -1158,18 +1145,9 @@ class VPEDecoder:
 
     def _build_dct4_matrix(self, N):
         """Pre-compute DCT-IV basis matrix for given transform size."""
-        if HAS_NUMPY:
-            n = np.arange(N).reshape(-1, 1)
-            k = np.arange(N).reshape(1, -1)
-            return np.cos(math.pi / N * (n + 0.5) * (k + 0.5))
-        else:
-            matrix = []
-            for n in range(N):
-                row = []
-                for k in range(N):
-                    row.append(math.cos(math.pi / N * (n + 0.5) * (k + 0.5)))
-                matrix.append(row)
-            return matrix
+        n = np.arange(N).reshape(-1, 1)
+        k = np.arange(N).reshape(1, -1)
+        return np.cos(math.pi / N * (n + 0.5) * (k + 0.5))
 
     def _imdct(self, spectral, num_samples: int) -> list[int]:
         """Inverse MDCT via direct DCT-IV computation.
@@ -1189,22 +1167,11 @@ class VPEDecoder:
         # - 10-point DCT with int16 coefficients (~29400) / 32768 = ~0.9x per element
         # - Reverse butterflies with int16 twiddles * 4 / 65536 = ~1.1x per stage
         # Net gain is approximately sqrt(N/2) to match standard DCT-IV normalization
-
-        if HAS_NUMPY:
-            x = np.zeros(N, dtype=np.float64)
-            slen = min(len(spectral), N)
-            x[:slen] = np.array(spectral[:slen], dtype=np.float64)
-            result = matrix @ x
-            return [self._clamp16(int(round(v))) for v in result]
-        else:
-            x = [float(spectral[i]) if i < len(spectral) else 0.0 for i in range(N)]
-            output = [0] * N
-            for n in range(N):
-                acc = 0.0
-                for k in range(N):
-                    acc += x[k] * matrix[n][k]
-                output[n] = self._clamp16(int(round(acc)))
-            return output
+        x = np.zeros(N, dtype=np.float64)
+        slen = min(len(spectral), N)
+        x[:slen] = np.array(spectral[:slen], dtype=np.float64)
+        result = matrix @ x
+        return [self._clamp16(int(round(v))) for v in result]
 
     # --- Synthesis Filter (vpe_synthesis_filter) ---
 
@@ -1522,10 +1489,6 @@ class VPEEncoder:
     """
 
     def __init__(self, firmware_data):
-        if not HAS_NUMPY:
-            raise RuntimeError("VPE encoding requires numpy")
-        if not HAS_SCIPY:
-            raise RuntimeError("VPE encoding requires scipy (scipy.fft.dct)")
         self.fw: bytes = firmware_data
         self.dec = VPEDecoder(firmware_data, debug_enabled=False)
         self._build_huffman_encode_tables()
@@ -1581,23 +1544,15 @@ class VPEEncoder:
         if src_rate <= 0 or dst_rate <= 0:
             raise ValueError(f"Invalid sample rate conversion {src_rate} -> {dst_rate}")
 
-        if HAS_SCIPY:
-            gcd = math.gcd(src_rate, dst_rate)
-            up = dst_rate // gcd
-            down = src_rate // gcd
-            out = scipy_resample_poly(
-                pcm.astype(np.float64),
-                up,
-                down,
-                window=("kaiser", 5.0),
-            )
-            return np.clip(np.rint(out), -32768, 32767).astype(np.int16)
-
-        dst_len = int(round(pcm.size * dst_rate / src_rate))
-        dst_len = max(dst_len, 1)
-        src_x = np.arange(pcm.size, dtype=np.float64)
-        dst_x = np.linspace(0.0, pcm.size - 1, dst_len, dtype=np.float64)
-        out = np.interp(dst_x, src_x, pcm.astype(np.float64))
+        gcd = math.gcd(src_rate, dst_rate)
+        up = dst_rate // gcd
+        down = src_rate // gcd
+        out = scipy_resample_poly(
+            pcm.astype(np.float64),
+            up,
+            down,
+            window=("kaiser", 5.0),
+        )
         return np.clip(np.rint(out), -32768, 32767).astype(np.int16)
 
     # --- Huffman encode tables ---
