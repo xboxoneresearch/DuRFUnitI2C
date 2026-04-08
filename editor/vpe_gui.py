@@ -483,7 +483,7 @@ class FirmwareGUI:
 
     def _extract_seg_raw(self, index: int, seg: AudioSegment):
         codec = seg.codec
-        default_name = f"segment_{index:02d}_.{codec.name.lower()}"
+        default_name = f"segment_{index:02d}_{codec.name.replace('/', '_')}.raw"
 
         path = filedialog.asksaveasfilename(
             title=f"Extract Segment {index}",

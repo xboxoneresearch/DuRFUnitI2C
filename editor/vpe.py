@@ -2826,12 +2826,11 @@ class FirmwareDecoderContext:
 class ISD9160Firmware:
     """Parser for ISD9160 firmware images with VPE audio library."""
 
-    def __init__(self, fw_data: bytes, verify_crc: bool = True):
+    def __init__(self, fw_data: bytes):
         self.data = fw_data
         self.seg_entries: list[LibrarySegEntry] = []
         self._vpe_header = None
         self._audiolib_header = None
-        self._verify_crc = verify_crc
         self._parse()
 
     @classmethod
@@ -2904,7 +2903,7 @@ class ISD9160Firmware:
                 f"AudioLibrary magic mismatch (got 0x{self.audiolib_header.magic:08X}, expected {VPE_AUDIOLIB_MAGIC})"
             )
 
-        if self._verify_crc and not self.is_checksum_valid():
+        if not self.is_checksum_valid():
             raise Exception("Invalid VPE checksum")
 
         # Read version string pointer
@@ -2962,7 +2961,7 @@ class ISD9160Firmware:
                 print(f"  Error: {e}")
 
             # Also save raw segment data for reference
-            raw_path = os.path.join(output_dir, f"segment_{idx:02d}_raw.bin")
+            raw_path = os.path.join(output_dir, f"segment_{idx:02d}_{codec.name.replace('/', '_')}.raw")
             with open(raw_path, "wb") as f:
                 f.write(seg.data)
 
@@ -2977,93 +2976,127 @@ class ISD9160Firmware:
     def get_all_segments(self) -> list[AudioSegment]:
         return [self.get_segment(i) for i in range(self.audiolib_header.segment_count)]
 
-    def patch_with_new_segments(
-        self, new_segments: list[AudioSegment], version_str: str
-    ) -> ISD9160Firmware:
-        fw_buf = bytearray(self.data).copy()
-        if not fw_buf:
-            raise Exception("No firmware loaded.. how did you get here?")
-
+    @property
+    def audio_region_range(self) -> tuple[int, int]:
+        """Returns (start_offset, end_limit) of audio data region."""
         toc_offset = self.audiolib_header.audio_toc_offset
-        audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(fw_buf))
-
+        audio_limit = min(VPE_AUDIO_DATA_LIMIT, len(self.data))
         if toc_offset >= audio_limit:
             raise Exception(
                 f"Invalid audio data region: start={toc_offset:#04X}, limit={audio_limit:#04X}"
             )
+        return toc_offset, audio_limit
 
-        # Zero out existing audio data
+    def _write_segment_to_buffer(
+        self, buffer: bytearray, segment: AudioSegment, position: int, index: int, limit: int
+    ) -> int:
+        """Write a single segment to buffer. Returns unaligned end position."""
+        if segment.is_empty():
+            raise Exception(f"Segment {index} is empty. Inject WAV/RAW or use Make Stub first.")
+
+        data_len = len(segment.data)
+        if (position + data_len) > limit:
+            raise Exception(
+                f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit while writing segment {index}."
+            )
+
+        # Write TOC entry
+        entry = LibrarySegEntry(position, position + data_len - 1)
+        entry_offset = self.audiolib_header.get_offset_for_audio_toc_entry(index)
+        buffer[entry_offset : entry_offset + len(entry)] = entry.to_bytes()
+
+        # Write segment data
+        buffer[position : position + data_len] = segment.data
+        return position + data_len
+
+    def _update_header_in_buffer(self, buffer: bytearray, header, offset: int) -> None:
+        """Write a header object back to the buffer at specified offset."""
+        buffer[offset : offset + len(header)] = header.to_bytes()
+
+    def _update_audiolib_header_field(self, buffer: bytearray, **fields) -> None:
+        """Update specific fields in audiolib header and write to buffer."""
+        header = copy.deepcopy(self.audiolib_header)
+        for field, value in fields.items():
+            setattr(header, field, value)
+        self._update_header_in_buffer(buffer, header, self.vpe_header.library_offset)
+
+    def _update_both_headers(self, buffer: bytearray, **fields) -> None:
+        """Update fields in both VPE and AudioLibrary headers."""
+        vpe_hdr = copy.deepcopy(self.vpe_header)
+        audio_hdr = copy.deepcopy(self.audiolib_header)
+
+        for field, value in fields.items():
+            setattr(vpe_hdr, field, value)
+            setattr(audio_hdr, field, value)
+
+        self._update_header_in_buffer(buffer, vpe_hdr, VPE_HEADER_ADDR)
+        self._update_header_in_buffer(buffer, audio_hdr, self.vpe_header.library_offset)
+
+    def _invalidate_cache(self) -> None:
+        """Invalidate all cached headers."""
+        self._vpe_header = None
+        self._audiolib_header = None
+        self.seg_entries = []
+
+    def inject_new_segments(self, new_segments: list[AudioSegment]) -> None:
+        """Inject new audio segments into the firmware, updating TOC entries.
+        
+        Modifies self.data in place. Updates audio_end_offset in headers.
+        """
+        fw_buf = bytearray(self.data)
+        if not fw_buf:
+            raise Exception("No firmware loaded.. how did you get here?")
+
+        # Clear audio region and get bounds
+        toc_offset, audio_limit = self.audio_region_range
         fw_buf[toc_offset:audio_limit] = b"\xff" * (audio_limit - toc_offset)
 
-        current_audiodata_pos = self.audiolib_header.audiodata_start
-        unaligned_audiodata_pos = current_audiodata_pos
-
+        # Write all segments sequentially
+        position = self.audiolib_header.audiodata_start
         for idx, segment in enumerate(new_segments):
-            if segment.is_empty():
-                raise Exception(
-                    f"Segment {idx} is empty. Inject WAV/RAW or use Make Stub first."
-                )
+            unaligned_end = self._write_segment_to_buffer(fw_buf, segment, position, idx, audio_limit)
+            position = ALIGN(unaligned_end)
 
-            data_len = len(segment.data)
+        # Update header and finalize
+        self._update_audiolib_header_field(fw_buf, audio_end_offset=unaligned_end)
+        self.data = bytes(fw_buf)
+        self._invalidate_cache()
 
-            if (current_audiodata_pos + data_len) > audio_limit:
-                raise Exception(
-                    f"Audio payload exceeds 0x{VPE_AUDIO_DATA_LIMIT:05X} limit "
-                    f"while writing segment {idx}."
-                )
+    def set_version_string(self, version_str: str) -> None:
+        """Set the version string in the firmware.
+        
+        Modifies self.data in place. Updates vpe_end_offset in both headers.
+        Must be called after inject_new_segments.
+        """
+        fw_buf = bytearray(self.data)
 
-            lib_entry = LibrarySegEntry(
-                current_audiodata_pos, current_audiodata_pos + data_len - 1
-            )
-
-            # Overwrite entry in fw buffer
-            lib_entry_offset = self.audiolib_header.get_offset_for_audio_toc_entry(idx)
-            fw_buf[lib_entry_offset : lib_entry_offset + len(lib_entry)] = (
-                lib_entry.to_bytes()
-            )
-
-            # Overwrite audio data in fw buffer
-            fw_buf[current_audiodata_pos : current_audiodata_pos + data_len] = (
-                segment.data
-            )
-
-            unaligned_audiodata_pos = current_audiodata_pos + data_len
-            current_audiodata_pos = ALIGN(unaligned_audiodata_pos)
-
-        # This is the non-aligned offset!
-        audiodata_end_offset = unaligned_audiodata_pos
+        audiodata_end = self.audiolib_header.audio_end_offset
 
         # Write version string + null terminator
         version_bytes = version_str.encode("utf-8") + b"\0"
-        version_len = len(version_bytes)
-        fw_buf[audiodata_end_offset : audiodata_end_offset + version_len] = (
-            version_bytes
-        )
+        fw_buf[audiodata_end : audiodata_end + len(version_bytes)] = version_bytes
 
-        # Align offset to fit checksum right at the end
-        vpe_end_addr = ALIGN(audiodata_end_offset + version_len + CRC16_LEN)
+        # Update both headers with new vpe_end_offset
+        vpe_end = ALIGN(audiodata_end + len(version_bytes) + CRC16_LEN)
+        self._update_both_headers(fw_buf, vpe_end_offset=vpe_end)
+        self.data = bytes(fw_buf)
+        self._invalidate_cache()
 
-        # Prepare the metadata headers and write them to the buffer
-        vpe_header = copy.deepcopy(self.vpe_header)
-        audiolib_header = copy.deepcopy(self.audiolib_header)
+    def patch_with_new_segments(
+        self, new_segments: list[AudioSegment], version_str: str
+    ) -> ISD9160Firmware:
+        """Create a patched firmware with new audio segments and version string.
+        
+        Returns a new ISD9160Firmware instance with updated segments, version, and checksum.
+        """
+        fw_copy = copy.deepcopy(self)
+        fw_copy.inject_new_segments(new_segments)
+        fw_copy.set_version_string(version_str)
+        fw_copy.rehash()
 
-        vpe_header.vpe_end_offset = vpe_end_addr
-        audiolib_header.vpe_end_offset = vpe_end_addr
-        audiolib_header.audio_end_offset = audiodata_end_offset
-
-        fw_buf[VPE_HEADER_ADDR : VPE_HEADER_ADDR + len(vpe_header)] = (
-            vpe_header.to_bytes()
-        )
-        fw_buf[
-            vpe_header.library_offset : vpe_header.library_offset + len(audiolib_header)
-        ] = audiolib_header.to_bytes()
-
-        # Rehash
-        fw = ISD9160Firmware(bytes(fw_buf), verify_crc=False)
-        fw.rehash()
-        assert fw.is_checksum_valid()
-
-        return fw
+        # Verify the firmware is still properly formatted
+        _ = ISD9160Firmware(fw_copy.data)
+        return fw_copy
 
     @staticmethod
     def _write_wav(
