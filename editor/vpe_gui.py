@@ -127,6 +127,7 @@ class FirmwareGUI:
         self.creator_segments: list[AudioSegment] = [AudioSegment.empty()] * 9
         self.version_str_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value=next(iter(ENCODING_PRESETS)))
+        self.thread_lock: threading.Lock = threading.Lock()
 
         self._build_toolbar()
         self._build_tabs()
@@ -370,6 +371,13 @@ class FirmwareGUI:
             row_widgets.extract_raw_btn["command"] = lambda s=seg, i=idx: (
                 self._extract_seg_raw(i, s)
             )
+
+            actions_state = tk.NORMAL if not self.thread_lock.locked() else tk.DISABLED
+
+            row_widgets.play_btn["state"] = actions_state
+            row_widgets.extract_wav_btn["state"] = actions_state
+            row_widgets.extract_raw_btn["state"] = actions_state
+
             row_widgets.grid(row=idx + 1)
 
     def _populate_creator(self):
@@ -410,22 +418,15 @@ class FirmwareGUI:
             row_widgets.inject_raw_btn["command"] = lambda i=idx: self._inject_seg_raw(
                 i
             )
-            if decoder_available:
-                row_widgets.stub_btn["state"] = tk.NORMAL
-                row_widgets.inject_wav_btn["state"] = tk.NORMAL
-                row_widgets.inject_raw_btn["state"] = tk.NORMAL
-                if len(seg.data):
-                    row_widgets.play_btn["state"] = tk.NORMAL
-                self.quality_combo["state"] = tk.NORMAL
-                self.fw_version_entry["state"] = tk.NORMAL
-            else:
-                row_widgets.stub_btn["state"] = tk.DISABLED
-                row_widgets.inject_wav_btn["state"] = tk.DISABLED
-                row_widgets.inject_raw_btn["state"] = tk.DISABLED
-                row_widgets.play_btn["state"] = tk.DISABLED
-                self.quality_combo["state"] = tk.DISABLED
-                self.version_str_var.set("Loaded base firmware required to use creator-tab")
-                self.fw_version_entry["state"] = tk.DISABLED
+            actions_state = tk.NORMAL if decoder_available and not self.thread_lock.locked() else tk.DISABLED
+
+            row_widgets.stub_btn["state"] = actions_state
+            row_widgets.inject_wav_btn["state"] = actions_state
+            row_widgets.inject_raw_btn["state"] = actions_state
+            row_widgets.play_btn["state"] = actions_state
+            self.quality_combo["state"] = actions_state
+            self.fw_version_entry["state"] = actions_state
+            self.save_btn["state"] = actions_state
 
             row_widgets.grid(row=idx + 1)
         self._update_space_indicator()
@@ -605,7 +606,13 @@ class FirmwareGUI:
         """Run fn(*args) on a background thread; keeps GUI responsive."""
 
         def wrapper():
-            fn(*args)
+            with self.thread_lock:
+                self._populate_segments()
+                self._populate_creator()
+                fn(*args)
+            # Calling the update method outside of lock context
+            self._populate_segments()
+            self._populate_creator()
 
         threading.Thread(target=wrapper, daemon=True).start()
 
