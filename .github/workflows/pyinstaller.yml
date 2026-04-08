@@ -6,7 +6,7 @@ on:
       - '*'
     branches:
       - main
-      - feat/pyinstaller
+      - ci_test
 
 env:
   MICROPYTHON_PICO_UF2_URL: https://micropython.org/resources/firmware/RPI_PICO-20241129-v1.24.1.uf2
@@ -34,9 +34,15 @@ jobs:
         run: |
           pip install pyinstaller pyserial tqdm
 
-      - name: Build executable
+      - name: Build micropython_rfunit
         run: |
           pyinstaller micropython_rfunit.spec
+
+      - name: Build vpe_gui
+        working-directory: ./editor
+        run: |
+          pyinstaller vpe_gui.spec
+          cp dist/* ../dist/
 
       - name: Rename README
         run: |
