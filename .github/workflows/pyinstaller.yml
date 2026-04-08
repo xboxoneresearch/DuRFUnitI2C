@@ -57,7 +57,9 @@ jobs:
 
   build_vpe:
     runs-on: windows-latest
-    working-directory: editor
+    defaults:
+      run:
+        working-directory: editor
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -67,7 +69,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install PyInstaller
+      - name: Install PyInstaller and deps
         run: |
           pip install -r requirements.txt
 
