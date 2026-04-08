@@ -1265,21 +1265,9 @@ class SirenDecoder:
             f"Unexpected value in header[1] byte. Expected: 0xFF, Got: {header.unknown:#02x}"
         )
 
-        print(f"    Codec byte: {header.codec_byte}")
-        print(f"    Unknown: {header.unknown}")
-        print(f"    Codec subtype: {header.codec_subtype}")
-        print(f"    Num Frames: {header.num_frames}")
-        print(f"    Bitrate: {header.bitrate} bps")
-        print(f"    Subbands: {header.num_subbands}")
-        print(f"    Bits/frame: {header.bits_per_frame}")
-        print(f"    Samples/frame: {header.samples_per_frame}")
-
         # Compressed data starts at offset +16
         compressed = segment.data[16:]
         bytes_per_frame = len(compressed) // header.num_frames
-
-        print(f"    Bytes/frame: {bytes_per_frame}")
-        print(f"    Segment length (w/o header): {len(compressed)}")
 
         # Determine sample rate from subbands
         if header.num_subbands <= 14:
@@ -2232,8 +2220,6 @@ class SirenEncoder:
         elif samples_count > padded_count:
             pcm = pcm[:padded_count]
 
-        print(f"    SF calibration offset: {profile.sf_offset:.2f}")
-
         # Analysis: compute IMDCT-domain halves from PCM.
         pcm_f = pcm.astype(np.float64)
         uA, uB = self._analysis_imdct_halves(
@@ -2646,7 +2632,6 @@ class DPCMDecoder:
                 control_byte = self._read_byte(bs)
             # else: same control_byte repeats for fixed-mode segments
 
-        print(f"    Decoded {frame_count} frames, {len(all_samples)} samples")
         return all_samples, header.samplerate
 
     def _read_byte(self, bs: DPCMBitstreamReader):
@@ -2951,8 +2936,6 @@ class ISD9160Firmware:
             outpath = os.path.join(
                 output_dir, f"segment_{idx:02d}_{codec.name.replace('/', '_')}.wav"
             )
-
-            print(f"\nExtracting Segment {idx} ({codec}, {len(seg):,} bytes)...")
 
             try:
                 samples, sample_rate = decoder.decode_segment(seg)

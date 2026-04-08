@@ -86,7 +86,7 @@ class CreatorRowWidgets:
         self.codec_label = ttk.Label(parent)
         self.size_label = ttk.Label(parent)
         self.details_label = ttk.Label(parent)
-        self.stub_btn = ttk.Button(parent, text="Make Stub")
+        self.stub_btn = ttk.Button(parent, text="Stub")
         self.play_btn = ttk.Button(parent, text="Play")
         self.inject_wav_btn = ttk.Button(parent, text="Inject WAV")
         self.inject_raw_btn = ttk.Button(parent, text="Inject RAW")
@@ -293,7 +293,6 @@ class FirmwareGUI:
 
     # ------------------------------------------------------------------ save
     def _save_new_fw(self):
-        print(self.version_str_var.get())
         new_fw = self.fw.patch_with_new_segments(
             self.creator_segments, self.version_str_var.get()
         )
@@ -386,6 +385,7 @@ class FirmwareGUI:
             row = self._creator_rows.pop()
             row.grid_remove()
 
+        decoder_available = hasattr(self, "decoder")
         for idx, seg in enumerate(self.creator_segments):
             row_widgets = self._creator_rows[idx]
             codec = seg.codec
@@ -396,6 +396,7 @@ class FirmwareGUI:
                 details = f"{hdr.samplerate // 1000}kHz"
             else:
                 details = "Unpopulated"
+
             size, unit = size_to_unit(len(seg))
             sound_name = RfUnitSound(idx)
             # Update labels and buttons with clear named attributes
@@ -405,13 +406,27 @@ class FirmwareGUI:
             row_widgets.details_label["text"] = details
             row_widgets.stub_btn["command"] = lambda i=idx: self._make_stub_seg(i)
             row_widgets.play_btn["command"] = lambda s=seg: self._play_seg(s)
-            row_widgets.play_btn["state"] = (
-                tk.DISABLED if len(seg.data) == 0 else tk.NORMAL
-            )
             row_widgets.inject_wav_btn["command"] = lambda i=idx: self._inject_seg(i)
             row_widgets.inject_raw_btn["command"] = lambda i=idx: self._inject_seg_raw(
                 i
             )
+            if decoder_available:
+                row_widgets.stub_btn["state"] = tk.NORMAL
+                row_widgets.inject_wav_btn["state"] = tk.NORMAL
+                row_widgets.inject_raw_btn["state"] = tk.NORMAL
+                if len(seg.data):
+                    row_widgets.play_btn["state"] = tk.NORMAL
+                self.quality_combo["state"] = tk.NORMAL
+                self.fw_version_entry["state"] = tk.NORMAL
+            else:
+                row_widgets.stub_btn["state"] = tk.DISABLED
+                row_widgets.inject_wav_btn["state"] = tk.DISABLED
+                row_widgets.inject_raw_btn["state"] = tk.DISABLED
+                row_widgets.play_btn["state"] = tk.DISABLED
+                self.quality_combo["state"] = tk.DISABLED
+                self.version_str_var.set("Loaded base firmware required to use creator-tab")
+                self.fw_version_entry["state"] = tk.DISABLED
+
             row_widgets.grid(row=idx + 1)
         self._update_space_indicator()
 
@@ -428,6 +443,12 @@ class FirmwareGUI:
             except ImportError:
                 self._log_ts(
                     "sounddevice not installed. Please install with 'pip install sounddevice'."
+                )
+                return
+
+            if not self.decoder:
+                self._log_ts(
+                    "No base firmware loaded, cannot decode audio segments..."
                 )
                 return
 
