@@ -596,7 +596,9 @@ class FirmwareGUI:
 def main():
     root = tk.Tk()
     FirmwareGUI(root)
-    sv_ttk.set_theme(darkdetect.theme())
+    # theme detection seems flaky with pyinstaller / windows
+    theme = darkdetect.theme() or "dark"
+    sv_ttk.set_theme(theme)
     root.mainloop()
 
 
