@@ -82,7 +82,7 @@ jobs:
         with:
           name: build-artifacts-vpe
           path: |
-            dist/
+            editor/dist/*
 
   release:
     runs-on: ubuntu-latest
