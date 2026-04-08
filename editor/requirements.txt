@@ -1,0 +1,7 @@
+numpy>=2.4.4
+scipy>=1.17.1
+sounddevice>=0.5.5
+darkdetect>=0.8.0
+sv-ttk>=2.6.1
+fastcrc>=0.3.5
+pyinstaller>=6.19.0
