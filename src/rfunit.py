@@ -494,7 +494,7 @@ def get_filesize(path: str) -> int:
     except OSError:
         return 0
 
-def main(device: I2CClient) -> int:
+def run(device: I2CClient) -> int:
     rfunit = RfUnitI2C(device)
 
     if not rfunit.detect():
@@ -547,8 +547,7 @@ def main(device: I2CClient) -> int:
     rfunit.play_sound(Sound.BING)
     return 0
 
-if __name__ == "__main__":
-    device = None
+def main() -> int:
     if sys.implementation.name == "micropython":
         import machine
         if sys.platform == "rp2":
@@ -575,4 +574,7 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError()
 
-    sys.exit(main(device))
+    return run(device)
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import os
+import sys
 import queue
 import threading
 import traceback
@@ -19,8 +20,23 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+import darkdetect
+import sv_ttk
+from serial.tools import list_ports
+
 import rfunit
 
+# Reference: https://pyinstaller.org/en/stable/runtime-information.html#using-sys-executable-and-sys-argv-0
+if getattr(sys, 'frozen', False):
+    # we are running in a bundle
+    bundle_dir = sys._MEIPASS
+else:
+    # we are running in a normal Python environment
+    bundle_dir = os.path.dirname(os.path.abspath(__file__))
+
+rfunit_py_path = os.path.join(bundle_dir, "rfunit.py")
+if not os.path.exists(rfunit_py_path):
+  raise Exception("Could not find rfunit.py")
 
 def _parse_int(text: str) -> int:
     s = (text or "").strip().lower()
@@ -345,11 +361,6 @@ class App(tk.Tk):
         _set(self.pico_detect_btn, dev_type == "pico")
 
     def _detect_pico_port(self) -> str:
-        try:
-            from serial.tools import list_ports
-        except Exception as e:
-            raise RuntimeError("pyserial is required for Pico support. Install with: pip install pyserial") from e
-
         ports = list_ports.comports()
         if not ports:
             raise RuntimeError("No serial ports found. Is your Pico plugged in and running MicroPython?")
@@ -422,7 +433,6 @@ class App(tk.Tk):
         )
 
     def _pico_exec_rfunit_py(self, pyb) -> None:
-        rfunit_py_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rfunit.py")
         with open(rfunit_py_path, "rb") as f:
             script_data = f.read()
 
@@ -847,6 +857,8 @@ class App(tk.Tk):
 
 def main() -> int:
     app = App()
+    theme = darkdetect.theme() or "dark"
+    sv_ttk.set_theme(theme)
     app.mainloop()
     return 0
 

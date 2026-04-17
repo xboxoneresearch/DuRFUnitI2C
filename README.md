@@ -111,6 +111,28 @@ Manual:
   - Copy flash.bin to the Micropython device: `./vendor/pyboard.py --device /dev/ttyACM0 -f cp flash.bin :flash.bin`
   - Execute the script: `./vendor/pyboard.py --device /dev/ttyACM0 rfunit.py`
 
+## ISD9160 VPE Editor tool
+
+This tool can be used to playback audio segments of ISD9160 firmware files, wrapped in custom VPE blob.
+Used on Xbox One/S/X for button-sounds.
+
+More features coming soon...
+
+Kudos to [flynnyfoo](https://github.com/FJCFJC123) for not giving up on this major task <3
+
+### Requirements
+
+- [uv](https://docs.astral.sh/uv/)
+
+### Usage
+
+Run the GUI
+
+```
+uv run vpe_gui.py
+```
+
+
 ## Flashdump
 
 Size: 0x24400
