@@ -2,6 +2,7 @@
 Xbox One I2C RF Unit
 """
 
+# NOTE: These typing hints in try/except-wrap are not available for micropython
 try:
     from typing import List, Generator
     from io import BufferedReader, BufferedWriter
@@ -114,7 +115,7 @@ class DummyDevice(I2CClient):
     def __init__(self):
         pass
 
-    def scan(self) -> bool:
+    def scan(self) -> List[int]:
         return [I2C_ADDR]
 
     def read(self, read_len: int) -> List[int]:
@@ -427,7 +428,7 @@ class RfUnitI2C:
             bytecnt = min(CHUNK_SIZE, end_offset - addr)
             yield res[:bytecnt]
 
-def print_position(position: int, mod_value: int = None):
+def print_position(position: int, mod_value: int | None = None):
     # As we dont want to print on each iteration..
     if not mod_value or position % mod_value == 0:
         print(f"{position:#08x}")
@@ -494,7 +495,7 @@ def get_filesize(path: str) -> int:
     except OSError:
         return 0
 
-def main(device: I2CClient) -> int:
+def run(device: I2CClient) -> int:
     rfunit = RfUnitI2C(device)
 
     if not rfunit.detect():
@@ -547,8 +548,7 @@ def main(device: I2CClient) -> int:
     rfunit.play_sound(Sound.BING)
     return 0
 
-if __name__ == "__main__":
-    device = None
+def main() -> int:
     if sys.implementation.name == "micropython":
         import machine
         if sys.platform == "rp2":
@@ -575,4 +575,7 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError()
 
-    sys.exit(main(device))
+    return run(device)
+
+if __name__ == "__main__":
+    sys.exit(main())

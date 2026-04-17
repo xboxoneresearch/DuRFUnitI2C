@@ -22,6 +22,9 @@ FLASH_FILENAME = "flash.bin"
 
 # Path in bundle or next to script
 rfunit_py_path = os.path.join(bundle_dir, "rfunit.py")
+if not os.path.exists(rfunit_py_path):
+  raise Exception("Could not find rfunit.py")
+
 # Path in current working directory
 dump_path = os.path.join(cwd, DUMP_FILENAME)
 flash_path = os.path.join(cwd, FLASH_FILENAME)
