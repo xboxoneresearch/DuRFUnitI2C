@@ -1,6 +1,6 @@
 
 
-# Durango RF Unit I2C Tooling
+# Durango RF Unit I2C Tooling (Sonus for Xbox One)
 
 [![GitHub Release](https://img.shields.io/github/v/release/xboxoneresearch/DuRFUnitI2C)](https://github.com/xboxoneresearch/DuRFUnitI2C/releases/latest)
 
