@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+use_upx=False
+# 'cmsis_svd' is a dependency of 'greatfet'
+rfunit_py_datas = [('src/rfunit.py', '.'), *collect_data_files('cmsis_svd', includes=['schemas/*'])]
+rfunit_hiddenimports = ["smbus2", "greatfet"]
+
 a1 = Analysis(
     ['src/rfunit.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=rfunit_py_datas,
+    hiddenimports=rfunit_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -18,10 +25,8 @@ a2 = Analysis(
     ['src/rfunit_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('src/rfunit.py', '.')
-    ],
-    hiddenimports=[],
+    datas=rfunit_py_datas,
+    hiddenimports=rfunit_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -62,10 +67,8 @@ a5 = Analysis(
     ['src/micropython_rfunit.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('src/rfunit.py', '.')
-    ],
-    hiddenimports=[],
+    datas=rfunit_py_datas,
+    hiddenimports=rfunit_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -88,7 +91,7 @@ exe_rfunit_cli = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -106,7 +109,7 @@ exe_rfunit_gui = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -124,7 +127,7 @@ exe_vpe_cli = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -142,7 +145,7 @@ exe_vpe_gui = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -160,13 +163,13 @@ exe_rfunit_cli_easy = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    name='rfunit-easy',
+    name='rfunit-micropython',
     console=True,
 )
 
@@ -197,7 +200,7 @@ coll = COLLECT(
     a5.datas,
 
     strip=False,
-    upx=True,
+    upx=use_upx,
     upx_exclude=[],
 
     name="durango-rfunit-tools"

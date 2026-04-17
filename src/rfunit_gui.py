@@ -475,8 +475,10 @@ class App(tk.Tk):
             if dev_type == "greatfet":
                 try:
                     dev = rfunit.GreatFetDevice()
-                except Exception as e:
+                except ImportError as e:
                     raise RuntimeError("Failed to init GreatFET. Did you `pip install greatfet`?") from e
+                except Exception as e:
+                    raise RuntimeError("No GreatFET device found") from e
             elif dev_type == "rpi":
                 if os.name == "nt":
                     raise RuntimeError(
@@ -489,12 +491,14 @@ class App(tk.Tk):
                     raise ValueError("Invalid RPi bus id") from e
                 try:
                     dev = rfunit.RPiDevice(bus_id=bus_id)
-                except Exception as e:
+                except ImportError as e:
                     raise RuntimeError("Failed to init smbus2. Did you `pip install smbus2` (and run on a Pi)?") from e
+                except PermissionError as e:
+                    raise RuntimeError("Could not access RPi smbus2 - permission error?") from e
             elif dev_type == "pico":
                 try:
                     from vendor import pyboard
-                except Exception as e:
+                except ImportError as e:
                     raise RuntimeError("Failed to import vendor.pyboard") from e
 
                 port = (self.pico_port_var.get() or "").strip()
@@ -864,4 +868,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

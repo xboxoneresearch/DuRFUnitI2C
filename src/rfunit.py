@@ -2,6 +2,7 @@
 Xbox One I2C RF Unit
 """
 
+# NOTE: These typing hints in try/except-wrap are not available for micropython
 try:
     from typing import List, Generator
     from io import BufferedReader, BufferedWriter
@@ -114,7 +115,7 @@ class DummyDevice(I2CClient):
     def __init__(self):
         pass
 
-    def scan(self) -> bool:
+    def scan(self) -> List[int]:
         return [I2C_ADDR]
 
     def read(self, read_len: int) -> List[int]:
@@ -427,7 +428,7 @@ class RfUnitI2C:
             bytecnt = min(CHUNK_SIZE, end_offset - addr)
             yield res[:bytecnt]
 
-def print_position(position: int, mod_value: int = None):
+def print_position(position: int, mod_value: int | None = None):
     # As we dont want to print on each iteration..
     if not mod_value or position % mod_value == 0:
         print(f"{position:#08x}")

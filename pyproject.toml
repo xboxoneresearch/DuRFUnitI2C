@@ -25,6 +25,7 @@ dev = [
 [project.scripts]
 rfunit-cli = "rfunit:main"
 rfunit-gui = "rfunit_gui:main"
-rfunit-easy = "micropython_rfunit:main"
+rfunit-micropython = "micropython_rfunit:main"
 vpe-cli = "vpe:main"
 vpe-gui = "vpe_gui:main"
+pyboard = "vendor.pyboard:main"
