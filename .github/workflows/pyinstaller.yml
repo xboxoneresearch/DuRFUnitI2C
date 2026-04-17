@@ -65,7 +65,7 @@ jobs:
 
       - name: Create release zip
         run: |
-          for DIR in *; do 7z a ../${DIR}-${{ github.ref_name }}.zip ${DIR}; done
+          for DIR in *; do 7z a ${DIR}-${{ github.ref_name }}.zip ${DIR}; done
 
       - name: Create release
         uses: softprops/action-gh-release@v2
