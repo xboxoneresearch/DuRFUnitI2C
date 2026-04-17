@@ -28,11 +28,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       - name: Download micropython binary
         run: |
-          IWR -OutFile micropython_pico.uf2 -Uri ${{ env.MICROPYTHON_PICO_UF2_URL }}
+          curl -L -o micropython_pico.uf2 ${{ env.MICROPYTHON_PICO_UF2_URL }}
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
