@@ -1,6 +1,7 @@
 # ISD9160 - Component Stuffing Guide
 
 This document details all components required to have custom audio functionality on Xbox One S/X and Series S/X non-limited-edition mainboards.
+See [Initial flashing of ISD9160](#reading-and-writing-the-chip-via-swd) when you are using a fresh ISD9160 chip (not salvaged from a Xbox console).
 
 ## Xbox One S
 
@@ -91,3 +92,66 @@ Speaker is soldered onto the mainboard.
 | C171              |  1  | 0603       | 10  μF                           | Capacitor          | 20%, 16V, X5R       |
 | SPKR_2P           |  1  | SMD, 18mm  | CSMS18S4.8-8S0.3-P580F, 8Ω, 0.3W | Onboard speaker    | MFR: Chinasound     |
 | R124, R126        |  2  | /          | DNP                              | Do not place       |                     |
+
+
+## Reading and Writing the chip via SWD
+
+> [!NOTE]
+> This section is a copy from [XOSFT wiki](https://xboxoneresearch.github.io/wiki/hardware/rf-unit/#reading-and-writing-the-chip-via-swd-recovery)
+
+Alternatively to I2C, the ARM SWD protocol can be used to read/write the chip.
+
+Requirements:
+
+Software
+
+- Linux
+- OpenOCD build, patched for ISD9160 support (see https://github.com/xboxoneresearch/DuRFUnitI2C/releases/tag/openocd_build)
+- Debugprobe firmware for PiPico (debugprobe_on_pico/2.uf2) - https://github.com/raspberrypi/debugprobe/releases
+
+Hardware
+
+- Raspberry Pi Pico/2
+- Soldering equipment
+- Sharp tweezers
+
+By default, the required pins on the IC are bridged on the RF Unit PCB. To enable usage of SWD, a trace needs to be cut, using pointy tweezers for example. 
+
+Make sure to use a multimeter to confirm the trace was cut properly.
+
+![RF Unit SWD](./rf_unit_swd.jpg)
+
+Steps:
+
+- Do the trace-cut mentioned above
+- Flash debugprobe firmware on Pi Pico/2
+- Connect Pi Pico to ISD9160 SWD pins (see https://mcuoneclipse.com/2022/09/17/picoprobe-using-the-raspberry-pi-pico-as-debug-probe/), 3V3 and GND
+- Now extract and start OpenOCD
+
+```
+tar xvf openocd_isd9160.tar.gz
+cd openocd_isd9160/
+./bin/openocd -f ./share/openocd/scripts/interface/cmsis-dap.cfg -f ./share/openocd/scripts/target/numicro.cfg
+```
+
+- In another terminal window connect via telnet
+
+```
+telnet localhost 4444
+```
+
+- First, dump the original `APROM` firmware
+
+```
+flash read_bank 0 aprom_original.bin
+```
+
+- Now, erase the bank and write new `APROM` firmware
+
+```
+flash erase_sector 0 0 last
+flash write_bank 0 aprom_new.bin
+```
+
+- Profit
+
