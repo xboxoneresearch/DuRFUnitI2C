@@ -6,13 +6,32 @@
 
 Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with custom audio.
 
-> [!WARNING]
-> Use at your own risk!
-
 > [!IMPORTANT]
+> Check out [Compatibility](#compatibility) section!
+
+
+> [!NOTE]
 > Download the latest release from the [Releases page](https://github.com/xboxoneresearch/DuRFUnitI2C/releases)
 
 **Technical documentation**: [Xbox One RF Unit Hardware](https://xboxoneresearch.github.io/wiki/hardware/rf-unit/)
+
+## Compatibility
+
+| Console | Works Out-of-the-Box | DIY Mod Required |
+|---------|:--------------------:|:----------------:|
+| Xbox One PHAT (special edition) | ✅ | — |
+| Xbox One PHAT (standard) | ✅ | — |
+| Xbox One S | ❌ | ✅ |
+| Xbox One X | ❌ | ✅ |
+| Xbox Series S | ❌ | ✅ |
+| Xbox Series X | ❌ | ✅ |
+
+Consoles requiring the DIY mod need the ISD9160 and supporting passive components soldered on. See [DIY Special Editions](./DIY-Special-edition.md) for the full bill of materials and instructions.
+
+> [!NOTE]
+> **Fresh vs. salvaged ISD9160 chips:**
+> - **Salvaged chips** (removed from special-edition Xbox consoles) already contain firmware and can be flashed directly via I2C.
+> - **Fresh/new chips** (purchased new) have no firmware and must be programmed via SWD before I2C flashing is possible. See [ISD9160 Initial Flashing](./DIY-Special-edition.md#reading-and-writing-the-chip-via-swd).
 
 ## Features
 
@@ -22,7 +41,7 @@ Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with cus
 ## Requirements
 
 **Hardware:**
-- Xbox One PHAT or One S RF Unit board
+- Compatible RF Unit or Xbox motherboard (see [Compatibility](#compatibility))
 
 **I2C Interface Device (choose one):**
 - GreatFET One board
@@ -35,9 +54,25 @@ Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with cus
 
 ## Quick Start
 
-**For Other Devices:**
-1. Wire I2C connections (see [Hardware Connections](#hardware-connections) section)
-2. Use GUI or CLI tool (see [Usage](#usage) section)
+### Salvaged Chip Workflow
+
+Use this path if your ISD9160 was removed from a special-edition Xbox console and already has firmware on it.
+
+1. Perform the [DIY mod](./DIY-Special-edition.md) — solder the ISD9160 and supporting components
+2. Wire I2C connections (see [Hardware Connections](#hardware-connections))
+3. Dump or write firmware using the GUI or CLI tool (see [Usage](#usage))
+4. Power cycle the console and press the Xbox button to verify the sounds play
+
+### Fresh Chip Workflow
+
+Use this path if your ISD9160 was purchased new and has no firmware.
+
+1. Perform the [DIY mod](./DIY-Special-edition.md) — solder the ISD9160 and supporting components
+2. **Cut the solder bridge between SWDIO and SWCLK** to allow programming via SWD
+3. Flash initial firmware via SWD (see [ISD9160 Initial Flashing](./DIY-Special-edition.md#reading-and-writing-the-chip-via-swd))
+4. Wire I2C connections (see [Hardware Connections](#hardware-connections))
+5. Write your custom firmware using the GUI or CLI tool (see [Usage](#usage))
+6. Power cycle the console and press the Xbox button to verify the sounds play
 
 ## Hardware Connections
 
@@ -60,6 +95,12 @@ Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with cus
 
 ### Direct Xbox Motherboard (FACET) Connections
 
+Required for the following console revisions:
+
+- Xbox One X
+- Xbox Series S
+- Xbox Series X
+
 See [FACET Hardware Documentation](https://xboxoneresearch.github.io/wiki/hardware/facet/)
 
 **Important:**
@@ -76,6 +117,9 @@ See [FACET Hardware Documentation](https://xboxoneresearch.github.io/wiki/hardwa
 
 **Pi Pico Connection - Xbox One S:**
 ![Pi Pico RF Unit connection diagram One S](./pi_pico_diagram_one_s.png)
+
+> [!TIP]
+> For playback testing after flashing new firmware (on Xbox One S/X), supply both **3.3V** (ISD9160 logic) and **5V** (speaker amplifier) to the RF unit. Using only 3.3V will result in no audio output from the speaker.
 
 ## Usage
 
