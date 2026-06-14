@@ -50,9 +50,10 @@ jobs:
             LICENSE
             CREDITS
             README.md
-            QUICKSTART_PICO.txt
+            DIY-Special-edition.md
             pi_pico_diagram_phat.png
             pi_pico_diagram_one_s.png
+            rf_unit_swd.jpg
             micropython_pico.uf2
 
   release:

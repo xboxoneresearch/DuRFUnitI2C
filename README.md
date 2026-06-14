@@ -74,6 +74,38 @@ Use this path if your ISD9160 was purchased new and has no firmware.
 5. Write your custom firmware using the GUI or CLI tool (see [Usage](#usage))
 6. Power cycle the console and press the Xbox button to verify the sounds play
 
+### Pi Pico: ISD9160 Already Installed
+
+Use this path if the ISD9160 is already soldered on the RF Unit and has firmware (e.g. a salvaged chip), and you want to use a Pi Pico as the I2C interface.
+
+**Step 1 — Flash MicroPython onto the Pi Pico**
+
+1. Hold the **BOOTSEL** button while plugging the Pi Pico into your PC — it mounts as a USB mass storage drive
+2. Download the latest [MicroPython .uf2 for Pi Pico](https://micropython.org/download/rp2-pico/) and copy it onto the drive
+3. The drive disappears and the Pico reboots automatically — MicroPython is now running
+
+**Step 2 — Wire the Pi Pico to the RF Unit**
+
+| Pi Pico        | RF Unit signal |
+|----------------|---------------|
+| 3V3 (Pin 36)   | 3V3           |
+| GND (any)      | GND           |
+| GP0 (Pin 1)    | SDA (DATA)    |
+| GP1 (Pin 2)    | SCL (CLOCK)   |
+
+Refer to [Hardware Connections](#hardware-connections) for the matching pin numbers on the RF Unit side per console revision.
+
+**Step 3 — Dump or flash firmware**
+
+- **Dump**: Run the executable `rfunit-micropython` and wait — `dump.bin` is saved alongside it
+- **Flash**: place `flash.bin` next to the executable, then run it and wait
+
+See [RFUnit Tool - MicroPython](#rfunit-tool---micropython) for full GUI and CLI instructions.
+
+**Step 4 — Cleanup**
+
+Unsolder all wiring between the Pi Pico and the RF Unit before reconnecting the RF Unit to the console.
+
 ## Hardware Connections
 
 **RF Unit Pin Mapping:**
