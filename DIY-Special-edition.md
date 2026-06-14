@@ -25,8 +25,8 @@ STL Models for a bracket (X360, possibly salvagable): <https://www.printables.co
 | Speaker            |  1  | ?          | ?                  | Speaker                |
 | C9, R6, R7, R22    |  4  | /          | DNP                | Do not place           |
 
-
 **TODO**: C2, C8, C11, C13, C15, C18, C30, C48 - 0402 - ?
+
 **TODO**: Actual speaker with JST connector
 
 

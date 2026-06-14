@@ -6,13 +6,22 @@
 
 Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with custom audio.
 
-> [!WARNING]
-> Use at your own risk!
-
 > [!IMPORTANT]
+> Check out [Compatibility](#compatibility) section!
+
+
+> [!NOTE]
 > Download the latest release from the [Releases page](https://github.com/xboxoneresearch/DuRFUnitI2C/releases)
 
 **Technical documentation**: [Xbox One RF Unit Hardware](https://xboxoneresearch.github.io/wiki/hardware/rf-unit/)
+
+## Compatibility
+
+Out-of-the-box Xbox One PHAT and special-edition motherboards (w/ custom sounds) are suppported!
+
+To modify your console to add custom sounds functionality, check out [DIY Special editions](./DIY-Special-edition.md).
+
+Soldering skills required!
 
 ## Features
 
@@ -22,7 +31,7 @@ Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with cus
 ## Requirements
 
 **Hardware:**
-- Xbox One PHAT or One S RF Unit board
+- Compatible RF Unit or Xbox motherboard (see [Compatibility](#compatibility))
 
 **I2C Interface Device (choose one):**
 - GreatFET One board
@@ -59,6 +68,12 @@ Tools for Xbox One RF Unit flash dumping, writing, and firmware editing with cus
 | ESP8266          | 3V3 | Any | GPIO 4               | GPIO 5              |
 
 ### Direct Xbox Motherboard (FACET) Connections
+
+Required for the following console revisions:
+
+- Xbox One X
+- Xbox Series S
+- Xbox Series X
 
 See [FACET Hardware Documentation](https://xboxoneresearch.github.io/wiki/hardware/facet/)
 
