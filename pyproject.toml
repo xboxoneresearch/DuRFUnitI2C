@@ -1,6 +1,6 @@
 [project]
 name = "durango-rfunit"
-version = "0.1.0"
+version = "2.0.0"
 description = "Durango ISD9160 tooling"
 readme = "README.md"
 requires-python = ">=3.14"
