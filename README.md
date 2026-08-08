@@ -150,6 +150,12 @@ See [FACET Hardware Documentation](https://xboxoneresearch.github.io/wiki/hardwa
 **Pi Pico Connection - Xbox One S:**
 ![Pi Pico RF Unit connection diagram One S](./pi_pico_diagram_one_s.png)
 
+**Pi Pico Connection - Xbox One X/Series S/X:**
+
+Requires PSU to be connected, console in standby.
+
+![Pi Pico MB I2C connection diagram](./pi_pico_diagram_mb_i2c.png)
+
 > [!TIP]
 > For playback testing after flashing new firmware (on Xbox One S/X), supply both **3.3V** (ISD9160 logic) and **5V** (speaker amplifier) to the RF unit. Using only 3.3V will result in no audio output from the speaker.
 
