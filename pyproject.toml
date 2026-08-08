@@ -20,7 +20,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller>=6.19.0",
+    "pytest>=8.3.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
 
 [project.scripts]
 rfunit-cli = "rfunit:main"
