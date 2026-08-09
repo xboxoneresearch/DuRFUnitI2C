@@ -27,6 +27,20 @@ from vpe import (
 )
 
 
+def get_firmware_metadata(fw_path: str) -> dict:
+    """Firmware-level metadata for display in the UI (not per-segment) -
+    version string, segment count, checksum validity, total image size, and
+    the AudioLibraryHeader's raw fw_version field."""
+    fw = ISD9160Firmware.from_filepath(fw_path)
+    return {
+        "version": fw.version,
+        "segmentCount": fw.segment_count,
+        "checksumValid": fw.is_checksum_valid(),
+        "sizeBytes": len(fw.data),
+        "fwVersionRaw": fw.audiolib_header.fw_version,
+    }
+
+
 def extract_segments(fw_path: str, output_dir: str) -> list[dict]:
     """Extract every segment in the firmware at fw_path to WAV+raw files
     under output_dir (via ISD9160Firmware.extract_all). Returns per-segment
@@ -80,10 +94,10 @@ def patch_firmware(fw_path: str, segment_paths: dict[int, str], version_str: str
     NOTE: writes output_path itself rather than returning ISD9160Firmware.data
     directly, and deliberately does not return the ISD9160Firmware object
     patch_with_new_segments() produces - its `.version`/`.seg_entries` stay
-    stale after patching (see external/DuRFUnitI2C/tests/test_vpe.py's
-    documented gotcha), only `.data` is trustworthy. Read output_path back
-    via a fresh ISD9160Firmware.from_filepath() call if you need to inspect
-    the result afterwards.
+    stale after patching (see this project's tests/test_vpe.py's documented
+    gotcha), only `.data` is trustworthy. Read output_path back via a fresh
+    ISD9160Firmware.from_filepath() call if you need to inspect the result
+    afterwards (get_firmware_metadata() above does exactly that).
     """
     fw = ISD9160Firmware.from_filepath(fw_path)
     new_segments = fw.get_all_segments()

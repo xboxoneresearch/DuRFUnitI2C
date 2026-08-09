@@ -24,6 +24,16 @@ def fw_path(tmp_path):
     return str(path)
 
 
+def test_get_firmware_metadata_reports_version_segments_and_checksum(fw_path):
+    result = bridge.get_firmware_metadata(fw_path)
+
+    assert result["version"] == VERSION_STR
+    assert result["segmentCount"] == 1
+    assert result["checksumValid"] is True
+    assert result["sizeBytes"] == 0x24400
+    assert result["fwVersionRaw"] == 1
+
+
 def test_extract_segments_returns_per_segment_metadata(fw_path, tmp_path):
     output_dir = str(tmp_path / "out")
 
