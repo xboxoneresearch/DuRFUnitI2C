@@ -13,6 +13,8 @@ STL Models for a bracket (X360, possibly salvagable): <https://www.printables.co
 > [!IMPORTANT]
 > Is the pitch for speaker connector correct?
 
+![ISD9160 placement on Xbox One S RF Unit](./isd9160_one_s.jpg)
+
 ### Bill of Materials (BOM)
 
 | Reference          | Qty | Package    | Value              | Component Type         |
@@ -35,6 +37,8 @@ STL Models for a bracket (X360, possibly salvagable): <https://www.printables.co
 
 On this console revision the ISD9160 circuitry is located on the motherboard.
 Speaker is soldered onto the mainboard.
+
+![ISD9160 location on Xbox One X motherboard](./isd9160_one_x.png)
 
 ### Bill of Materials (BOM)
 
@@ -119,13 +123,14 @@ By default, the required pins on the IC are bridged on the RF Unit PCB. To enabl
 
 Make sure to use a multimeter to confirm the trace was cut properly.
 
-![RF Unit SWD](./rf_unit_swd.jpg)
+![ISD9160 SWD flashing wiring diagram](./isd9160_swd_flashing.png)
 
 Steps:
 
 - Do the trace-cut mentioned above
 - Flash debugprobe firmware on Pi Pico/2
-- Connect Pi Pico to ISD9160 SWD pins (see https://mcuoneclipse.com/2022/09/17/picoprobe-using-the-raspberry-pi-pico-as-debug-probe/), 3V3 and GND
+- Connect Pi Pico to ISD9160 SWD pins, 3V3 and GND
+
 - Now extract and start OpenOCD
 
 ```
