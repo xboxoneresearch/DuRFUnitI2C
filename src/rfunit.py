@@ -146,11 +146,25 @@ CMD_GET_TIMERVAL_xC9 = 0xC9
 
 CMD_START_x81 = 0x81
 CMD_BOOT_REPAIR_x8B = 0x8B
+CMD_EXTERNAL_PLAY_x83 = 0x83
+CMD_EXTERNAL_DATA_x84 = 0x84
+CMD_TRANSFER_x11 = 0x11
 CMD_STOP_x02 = 0x02
 CMD_FLASH_ERASE_x95 = 0x95
 CMD_FLASH_WRITE_x9A = 0x9A
 CMD_FLASH_SET_WRITE_ADDR_x9B = 0x9B
 CMD_RESET_x4A = 0x4A
+
+MAILBOX_LEN = 0x1A
+VPE_INIT_LEN = 12
+MAILBOX_DATA_CHUNK = MAILBOX_LEN - 4
+EXT_GAIN_UNITY = 0x2000
+
+AUDIO_CMD_VOLUME_xAA = 0xAA
+AUDIO_CMD_PAUSE_xAB = 0xAB
+AUDIO_CMD_EXTERNAL_xAC = 0xAC
+AUDIO_CMD_PLAY_xAD = 0xAD
+AUDIO_CMD_STOP_xAE = 0xAE
 
 STATUS_READY = 0x80
 STATUS_ERROR = 0x04
@@ -182,12 +196,49 @@ Register Index -> Offsets (each 1 byte length)
 0x29 -> 0x20000f41
 0x2b ->0x20000f42
 
-Missing registers:
-0x1f (PDMA related)
-0x20
-0x22
-0x2a 
+Extra registers (from jump table at 0x1A42):
+0x1f -> 0x20000f14+0x14 (mode)
+0x20 -> low byte temp, 0x21 combines to u16 at 0x20000f14+0x1e (gain)
+0x22 -> low byte temp, 0x23 combines to u16 at 0x20000f14+0x18
+0x28 -> 0x20000f14+0x0c (clamped 4..0x14)
+0x2a -> low byte temp (pairs with 0x2b to u16 at +0x2e)
 """
+
+# Firmware-internal SRAM addresses (920.000c). Host cannot touch
+# these directly, they document what outer 0x83/0x84 prime.
+EXT_HEADER_ADDR = 0x20002968
+EXT_FRAME_ADDR = 0x200028F0
+EXT_PCM_ADDR = 0x20000400
+
+
+def build_mailbox_packet(cmd: int, param: int, header12) -> List[int]:
+    # Class-2 packet is 26 bytes. Handler at 0x58F2 copies
+    # bytes 4:16 (3 words) to EXT_HEADER_ADDR.
+    header = list(header12)
+    if len(header) != VPE_INIT_LEN:
+        raise ValueError(f"need {VPE_INIT_LEN} header bytes, got {len(header)}")
+    pkt = [cmd & 0xFF, param & 0xFF, 0x00, 0x00]
+    pkt.extend([b & 0xFF for b in header])
+    pkt.extend([0x00] * (MAILBOX_LEN - 4 - VPE_INIT_LEN))
+    return pkt
+
+
+def split_vpe_blob(blob) -> tuple:
+    # Blob is 12-byte VPE init followed by N frames of
+    # bits_per_frame//8 bytes (init+6 is u16le per Segment_Size_Research).
+    raw = bytes(blob)
+    if len(raw) < VPE_INIT_LEN:
+        raise ValueError(f"blob too short: {len(raw)}")
+    header = raw[0:VPE_INIT_LEN]
+    bits_per_frame = struct.unpack_from("<H", raw, 6)[0]
+    if bits_per_frame == 0 or bits_per_frame % 8 != 0:
+        raise ValueError(f"bad bits_per_frame: {bits_per_frame}")
+    frame_len = bits_per_frame // 8
+    rest = raw[VPE_INIT_LEN:]
+    if len(rest) == 0 or len(rest) % frame_len != 0:
+        raise ValueError(f"truncated frames: {len(rest)} not a multiple of {frame_len}")
+    frames = [rest[i:i + frame_len] for i in range(0, len(rest), frame_len)]
+    return (header, frames)
 
 
 class Sound:
@@ -351,6 +402,48 @@ class RfUnitI2C:
     def play_sound(self, num: int):
         self.dev.write([CMD_START_x81, num])
 
+    def send_mailbox(self, cmd: int, param: int, header12) -> None:
+        self.dev.write(build_mailbox_packet(cmd, param, header12))
+
+    def set_external_gain(self, gain: int) -> None:
+        # Sequential REG_WRITE starting at 0x20 hits 0x20 then
+        # auto-increments into 0x21 which stores u16 gain at +0x1e.
+        gain = gain & 0xFFFF
+        self._write_register(0x20, [gain & 0xFF, (gain >> 8) & 0xFF])
+
+    def start_external_play(self, header12, gain: int = EXT_GAIN_UNITY) -> None:
+        # Outer 0x83 stages the header at EXT_HEADER_ADDR and
+        # the 0x5800 task fires inner 0xAC (see 0x5950).
+        self.set_external_gain(gain)
+        self.send_mailbox(CMD_EXTERNAL_PLAY_x83, 0x00, header12)
+
+    def feed_external_frame(self, frame, seq: int = 0) -> int:
+        # One 0x84 packet carries up to 22 payload bytes.
+        # Larger VPE frames need several packets.
+        raw = bytes(frame)
+        if len(raw) == 0:
+            return 0
+        count = 0
+        for off in range(0, len(raw), MAILBOX_DATA_CHUNK):
+            chunk = raw[off:off + MAILBOX_DATA_CHUNK]
+            pkt = [(CMD_EXTERNAL_DATA_x84), ((seq + count) & 0xFF), 0x00, 0x00]
+            pkt.extend(list(chunk))
+            pkt.extend([0x00] * (MAILBOX_DATA_CHUNK - len(chunk)))
+            self.dev.write(pkt)
+            count += 1
+        return count
+
+    def stream_audio_blob(self, blob, gain: int = EXT_GAIN_UNITY) -> int:
+        # Header first via 0x83, then each frame via 0x84 chunks.
+        # Returns frame count. Handshake polling (+3/+5) still
+        # needs HW confirmation, so no wait here.
+        header, frames = split_vpe_blob(blob)
+        self.start_external_play(list(header), gain)
+        seq = 0
+        for frame in frames:
+            seq = (seq + self.feed_external_frame(frame, seq)) & 0xFF
+        return len(frames)
+
     def reset(self):
         self.dev.write([CMD_RESET_x4A, 0x55, 0x01])
 
@@ -495,7 +588,17 @@ def get_filesize(path: str) -> int:
     except OSError:
         return 0
 
-def run(device: I2CClient) -> int:
+def do_stream(dev: RfUnitI2C, f: BufferedReader, gain: int = EXT_GAIN_UNITY) -> int:
+    blob = f.read()
+    try:
+        frames = dev.stream_audio_blob(blob, gain)
+    except ValueError as e:
+        print(f"Bad audio blob: {e}")
+        return 8
+    print(f"* Streamed {frames} frames without flashing")
+    return 0
+
+def run(device: I2CClient, stream_path=None, gain: int = EXT_GAIN_UNITY) -> int:
     rfunit = RfUnitI2C(device)
 
     if not rfunit.detect():
@@ -504,6 +607,20 @@ def run(device: I2CClient) -> int:
 
     rfunit.init()
     rfunit.stop()
+
+    if stream_path is not None:
+        if rfunit.is_in_ldrom():
+            print("Rebooting back into APROM now...")
+            if not rfunit.boot_to_aprom():
+                print("Failed booting back into APROM")
+                return 7
+            print("* Reboot to APROM finished")
+        try:
+            with open(stream_path, "rb") as f:
+                return do_stream(rfunit, f, gain)
+        except OSError:
+            print(f"Cannot open stream file '{stream_path}'!")
+            return 2
 
     if not rfunit.is_in_ldrom():
         fw_version = rfunit.read_fw_version()
@@ -566,6 +683,10 @@ def main() -> int:
         import argparse
         parser = argparse.ArgumentParser()
         parser.add_argument("device", choices=["greatfet", "rpi"], help="Device type to use")
+        parser.add_argument("--stream", metavar="VPE_BLOB", default=None,
+                            help="Stream a raw VPE blob (12-byte init + frames) for RAM-only playback")
+        parser.add_argument("--gain", default="0x2000",
+                            help="Playback gain, hex or int (default 0x2000 unity)")
         args = parser.parse_args()
 
         if args.device == Devices.GREATFET:
@@ -574,6 +695,8 @@ def main() -> int:
             device = RPiDevice()
         else:
             raise NotImplementedError()
+
+        return run(device, stream_path=args.stream, gain=int(args.gain, 0))
 
     return run(device)
 
